@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type { BaselineCalibration } from '../../types';
 import { calculateShannonEntropy } from '../../telemetry/slidingWindow';
@@ -14,8 +14,7 @@ interface BaselineCalibrationModalProps {
 }
 
 // ─── Phase 1: Read & Type Code Snippet ───────────────────────────────────────
-// A realistic, non-trivial ~14-line snippet for the candidate to read and type.
-// Deliberately uses varied keystrokes (brackets, dots, words) for rich sampling.
+// A realistic 14-line snippet for the candidate to read and type.
 const TRANSCRIPTION_CODE_DISPLAY = `function mergeIntervals(intervals) {
   if (!intervals.length) return [];
 
@@ -33,30 +32,33 @@ const TRANSCRIPTION_CODE_DISPLAY = `function mergeIntervals(intervals) {
   return merged;
 }`;
 
-// Starter text prepopulated in the typing area (empty — user types the snippet above)
-const TRANSCRIPTION_STARTER = `// Phase 1: Read the code on the left, then type it here.\n// Take your time — read a few lines, then type them.\n\n`;
+// Non-whitespace characters in the snippet (~296 characters)
+const SNIPPET_TARGET_CHARS = TRANSCRIPTION_CODE_DISPLAY.replace(/\s+/g, '').length;
+
+// Starter header text in Monaco editor
+const TRANSCRIPTION_STARTER = `// Type the code snippet shown on the left:\n\n`;
 
 // ─── Phase 2: Personal Question Pool ─────────────────────────────────────────
 const PERSONAL_QUESTIONS = [
   {
     id: 'project',
     prompt: 'Briefly describe a programming project you have worked on — what it did, which language you used, and one thing you learned from building it.',
-    placeholder: 'e.g. I built a todo-list web app using React and Node.js. The hardest part was…',
+    placeholder: 'e.g. I built a real-time chat application using React, Node.js, and WebSockets. The trickiest challenge was managing message ordering and connection drops, which taught me...',
   },
   {
     id: 'background',
     prompt: 'What is your strongest programming language, and what is the most complex problem you have solved using it? Give a short example.',
-    placeholder: 'e.g. Python is my strongest language. I used it to implement a binary search tree from scratch…',
+    placeholder: 'e.g. Python is my strongest language. I used it to implement a custom graph traversal algorithm with memoization for finding the shortest path between...',
   },
   {
     id: 'journey',
     prompt: 'How did you get started with programming, and what motivated you to keep learning? Describe in 2–3 sentences.',
-    placeholder: 'e.g. I started coding in 9th grade when I made a small game in Python. I kept going because…',
+    placeholder: 'e.g. I started programming when I was curious about how automation scripts worked. Building small utility tools that saved time for my team motivated me to keep learning...',
   },
 ];
 
-// Pick one question deterministically (could be randomized per session)
 const PERSONAL_QUESTION = PERSONAL_QUESTIONS[Math.floor(Date.now() / 1000) % 3];
+const PHASE2_TARGET_CHARS = 100; // Target ~2-3 thoughtful sentences
 
 // ─── Keystroke Collector Hook ─────────────────────────────────────────────────
 function useKeystrokeCollector() {
@@ -112,7 +114,7 @@ function useKeystrokeCollector() {
   return { onKeyDown, onKeyUp, reset, snapshot, keystrokeCountRef };
 }
 
-// ─── Derive biometric profile from a flight-time sample set ──────────────────
+// ─── Derive biometric profile from flight-time samples ───────────────────────
 function deriveProfile(flights: number[], dwells: number[], bsCount: number, ksCount: number) {
   const vf = flights.length >= 8 ? flights : [145, 175, 160, 210, 190, 135, 165, 180];
   const vd = dwells.length >= 8 ? dwells : [70, 75, 80, 65, 85, 75, 70, 80];
@@ -127,7 +129,7 @@ function deriveProfile(flights: number[], dwells: number[], bsCount: number, ksC
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-type Phase = 'intro' | 'phase1' | 'phase2' | 'complete';
+type Phase = 'intro' | 'phase1' | 'phase2';
 
 export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> = ({
   isOpen,
@@ -135,16 +137,41 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
   candidateId,
 }) => {
   const [phase, setPhase] = useState<Phase>('intro');
+  const [phase1Code, setPhase1Code] = useState(TRANSCRIPTION_STARTER);
   const [phase1KeyCount, setPhase1KeyCount] = useState(0);
   const [phase2KeyCount, setPhase2KeyCount] = useState(0);
   const [thoughtText, setThoughtText] = useState('');
 
-  // Separate collectors for each phase
+  // Collectors for each phase
   const phase1Collector = useKeystrokeCollector();
   const phase2Collector = useKeystrokeCollector();
 
-  // Stored phase1 snapshot (locked-in when user advances to Phase 2)
+  // Snapshot of Phase 1 transcription
   const phase1SnapshotRef = useRef<ReturnType<typeof phase1Collector.snapshot> | null>(null);
+
+  // ── Calculate Progress of Phase 1 Code Typing ──────────────────────────────
+  // Exclude comment lines and spaces to accurately evaluate how much code is typed
+  const { typedCharsCount, phase1Progress, phase1Ready } = useMemo(() => {
+    const codeLines = phase1Code
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    const typedClean = codeLines.replace(/\s+/g, '');
+    const count = typedClean.length;
+    // Progress scales across the full 296 non-whitespace characters of the snippet
+    const progress = Math.min(100, Math.round((count / SNIPPET_TARGET_CHARS) * 100));
+    // Ready when candidate has typed at least 88% of the snippet and generated sufficient keystrokes
+    const isReady = progress >= 88 && phase1KeyCount >= 140;
+    return { typedCharsCount: count, phase1Progress: progress, phase1Ready: isReady };
+  }, [phase1Code, phase1KeyCount]);
+
+  // ── Calculate Progress of Phase 2 Thought Text ─────────────────────────────
+  const { phase2Progress, phase2Ready } = useMemo(() => {
+    const len = thoughtText.trim().length;
+    const progress = Math.min(100, Math.round((len / PHASE2_TARGET_CHARS) * 100));
+    const isReady = len >= PHASE2_TARGET_CHARS && phase2KeyCount >= 60;
+    return { phase2Progress: progress, phase2Ready: isReady };
+  }, [thoughtText, phase2KeyCount]);
 
   if (!isOpen) return null;
 
@@ -152,7 +179,7 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
   const handlePhase1Mount: OnMount = (editor) => {
     editor.focus();
     const lineCount = editor.getModel()?.getLineCount() || 3;
-    editor.setPosition({ lineNumber: lineCount, column: 100 });
+    editor.setPosition({ lineNumber: lineCount, column: 1 });
 
     editor.onKeyDown((e) => {
       phase1Collector.onKeyDown(e.browserEvent);
@@ -174,7 +201,7 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
   const advanceToPhase2 = () => {
     phase1SnapshotRef.current = phase1Collector.snapshot();
     phase2Collector.reset();
-    setPhase(phase === 'phase1' ? 'phase2' : 'phase2');
+    setPhase('phase2');
   };
 
   // ── Build & complete final baseline ────────────────────────────────────────
@@ -182,7 +209,7 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
     const p2 = phase2Collector.snapshot();
     const p2Profile = deriveProfile(p2.flightTimes, p2.dwellTimes, p2.backspaceCount, p2.keystrokeCount);
 
-    // Phase 1 transcription profile (for anomaly detection reference)
+    // Phase 1 transcription profile
     const p1 = phase1SnapshotRef.current;
     let txMean: number | undefined;
     let txVar: number | undefined;
@@ -196,7 +223,7 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
 
     const baseline: BaselineCalibration = {
       candidateId,
-      // Primary: Phase 2 (authentic thinking-while-typing)
+      // Primary: Phase 2 (authentic cognitive typing)
       meanFlightTime: Math.max(70, p2Profile.mf),
       varianceFlightTime: Math.max(800, p2Profile.varF),
       stdDevFlightTime: Math.max(28, p2Profile.stdDev),
@@ -211,7 +238,7 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
       transcriptionMeanFlightTime: txMean,
       transcriptionVarianceFlightTime: txVar,
       transcriptionBackspaceRate: txBsRate,
-      // Personal context for evaluators
+      // Candidate statement for evaluators
       candidateStatement: thoughtText.trim() || undefined,
       personalQuestionAsked: PERSONAL_QUESTION.prompt,
     };
@@ -231,12 +258,9 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
     });
   };
 
-  const phase1Ready = phase1KeyCount >= 40;
-  const phase2Ready = phase2KeyCount >= 30 && thoughtText.trim().length >= 20;
-
   // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div className="card w-full max-w-4xl bg-base-100 shadow-2xl border border-base-300 flex flex-col max-h-[95vh]">
 
         {/* ── Step Indicator Header ─────────────────────────────────────── */}
@@ -249,32 +273,26 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
                   Biometric Typing Calibration
                 </h2>
                 <p className="text-xs text-base-content/55 mt-0.5">
-                  Two quick steps — takes about 90 seconds total. Timing only, no characters stored.
+                  Type the code snippet, then answer a personal question. Timing only, no passwords/secrets logged.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              {/* Privacy badge */}
-              <div className="flex items-center gap-1 text-[10px] text-success bg-success/10 border border-success/20 rounded-full px-2.5 py-1">
-                <ShieldCheck className="w-3 h-3" />
-                <span>Keystroke timing only</span>
-              </div>
+            <div className="flex items-center gap-1 text-[10px] text-success bg-success/10 border border-success/20 rounded-full px-2.5 py-1">
+              <ShieldCheck className="w-3 h-3" />
+              <span>Biometric rhythm only</span>
             </div>
           </div>
 
           {/* Progress steps */}
           <ul className="steps steps-horizontal w-full text-xs">
-            <li className={`step ${['intro', 'phase1', 'phase2', 'complete'].includes(phase) ? 'step-primary' : ''}`}>
-              Intro
+            <li className={`step ${['intro', 'phase1', 'phase2'].includes(phase) ? 'step-primary' : ''}`}>
+              Overview
             </li>
-            <li className={`step ${['phase1', 'phase2', 'complete'].includes(phase) ? 'step-primary' : ''}`}>
-              Read & Type Code
+            <li className={`step ${['phase1', 'phase2'].includes(phase) ? 'step-primary' : ''}`}>
+              1. Type Full Code Snippet
             </li>
-            <li className={`step ${['phase2', 'complete'].includes(phase) ? 'step-primary' : ''}`}>
-              Your Thoughts
-            </li>
-            <li className={`step ${phase === 'complete' ? 'step-primary' : ''}`}>
-              Done
+            <li className={`step ${phase === 'phase2' ? 'step-primary' : ''}`}>
+              2. Personal Perspective
             </li>
           </ul>
         </div>
@@ -287,31 +305,31 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
               <div className="bg-base-200/60 rounded-2xl border border-base-300 p-4 space-y-2">
                 <div className="flex items-center gap-2 text-primary font-bold text-sm">
                   <Eye className="w-4 h-4" />
-                  Step 1 — Read & Type
+                  Step 1 — Read & Type the Full Code
                 </div>
                 <p className="text-xs text-base-content/70 leading-relaxed">
-                  A code snippet will be shown on the left. Read a few lines at a time, then type them into the editor on the right. This captures how you type when reading code — giving the system your natural <strong>transcription rhythm</strong> as a reference.
+                  A realistic 14-line algorithm function is shown on the left. Type the full snippet into the Monaco editor on the right. The progress bar will fill up as you type each line of the code snippet.
                 </p>
-                <div className="badge badge-outline badge-sm text-[10px]">~50 keystrokes</div>
+                <div className="badge badge-outline badge-sm text-[10px]">~300 characters / 14 lines</div>
               </div>
 
               {/* Phase 2 card */}
               <div className="bg-base-200/60 rounded-2xl border border-base-300 p-4 space-y-2">
                 <div className="flex items-center gap-2 text-secondary font-bold text-sm">
                   <Brain className="w-4 h-4" />
-                  Step 2 — Your Thoughts
+                  Step 2 — Answer From the Mind
                 </div>
                 <p className="text-xs text-base-content/70 leading-relaxed">
-                  You'll be asked a short personal question about your programming experience. Type your answer <strong>from memory</strong> — naturally, with pauses to think and any corrections. This captures your <strong>authentic cognitive typing pattern</strong>.
+                  You will answer a personal question about your programming projects and experience. Type your answer naturally from thought (2–3 sentences) to capture your authentic cognitive typing pattern.
                 </p>
-                <div className="badge badge-outline badge-sm text-[10px]">~40 keystrokes</div>
+                <div className="badge badge-outline badge-sm text-[10px]">~100+ characters / 2–3 sentences</div>
               </div>
             </div>
 
             <div className="alert py-2.5 px-3.5 rounded-xl text-xs">
               <Info className="w-4 h-4 shrink-0" />
               <span>
-                <strong>Why two phases?</strong> Your typing rhythm shifts when you read vs. when you think. By measuring both, the system creates a personal signal that's far more accurate than a single-mode calibration — dramatically reducing both false positives and false negatives.
+                <strong>Accurate Personalization:</strong> Measuring both your reading/transcription speed and your thinking/formulating cadence allows the system to eliminate false positives and catch true sight-typing anomalies.
               </span>
             </div>
 
@@ -321,7 +339,7 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
               </button>
               <button onClick={() => setPhase('phase1')} className="btn btn-primary btn-sm gap-2">
                 <ChevronRight className="w-4 h-4" />
-                Begin Calibration
+                Begin Step 1
               </button>
             </div>
           </div>
@@ -330,45 +348,59 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
         {/* ── Phase 1: Read & Type ───────────────────────────────────────── */}
         {phase === 'phase1' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="px-5 pt-4 pb-3 shrink-0">
-              <div className="flex items-center gap-2 text-sm font-bold text-base-content">
-                <Eye className="w-4 h-4 text-primary" />
-                Step 1 of 2 — Read the code on the left, type it on the right
+            <div className="px-5 pt-3.5 pb-2 shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-bold text-base-content">
+                  <Eye className="w-4 h-4 text-primary" />
+                  <span>Step 1 of 2 — Type the code snippet shown on the left</span>
+                </div>
+                <span className="text-xs font-mono font-semibold text-primary">
+                  {phase1Progress}% Completed
+                </span>
               </div>
-              <p className="text-xs text-base-content/55 mt-1">
-                Read a chunk (3–5 lines), then type it. Glance back as needed — typos & backspaces are completely fine.
+              <p className="text-xs text-base-content/55 mt-0.5">
+                Type the full function below. The progress bar will advance as you type out each line of code.
               </p>
             </div>
 
             {/* Split: Code to read | Editor to type into */}
-            <div className="flex-1 flex min-h-0 gap-0 mx-4 mb-4 rounded-2xl border border-base-300 overflow-hidden shadow-inner">
+            <div className="flex-1 flex min-h-0 gap-0 mx-4 mb-3 rounded-2xl border border-base-300 overflow-hidden shadow-inner">
 
               {/* Left: Read-only reference code */}
               <div className="w-1/2 bg-[#1e1e2e] flex flex-col border-r border-white/10 overflow-hidden">
-                <div className="px-3 py-2 bg-white/5 border-b border-white/10 flex items-center gap-2 shrink-0">
-                  <BookOpen className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="text-[11px] text-white/60 font-mono font-semibold uppercase tracking-wide">
-                    Read this ↓ then type it →
-                  </span>
+                <div className="px-3 py-2 bg-white/5 border-b border-white/10 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+                    <span className="text-[11px] text-white/70 font-mono font-semibold uppercase tracking-wide">
+                      Reference Code Snippet
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-white/40 font-mono">14 lines</span>
                 </div>
-                <pre className="flex-1 overflow-y-auto p-4 text-[13px] font-mono leading-relaxed text-green-300/90 whitespace-pre-wrap">
+                <pre className="flex-1 overflow-y-auto p-4 text-[13px] font-mono leading-relaxed text-green-300/90 whitespace-pre-wrap select-none">
                   {TRANSCRIPTION_CODE_DISPLAY}
                 </pre>
               </div>
 
               {/* Right: Monaco typing area */}
               <div className="w-1/2 flex flex-col overflow-hidden bg-base-100">
-                <div className="px-3 py-2 bg-base-200/60 border-b border-base-300 flex items-center gap-2 shrink-0">
-                  <Keyboard className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-[11px] text-base-content/60 font-semibold uppercase tracking-wide">
-                    Type here (Monaco editor — suggestions ON)
+                <div className="px-3 py-2 bg-base-200/60 border-b border-base-300 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Keyboard className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-[11px] text-base-content/70 font-semibold uppercase tracking-wide">
+                      Your Editor (Suggestions ON)
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-base-content/40 font-mono">
+                    {typedCharsCount} / {SNIPPET_TARGET_CHARS} chars
                   </span>
                 </div>
                 <div className="flex-1 min-h-0">
                   <Editor
                     height="100%"
                     language="javascript"
-                    defaultValue={TRANSCRIPTION_STARTER}
+                    value={phase1Code}
+                    onChange={(val) => setPhase1Code(val || '')}
                     onMount={handlePhase1Mount}
                     theme="vs-dark"
                     options={{
@@ -389,31 +421,42 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="px-5 pb-4 space-y-2.5 shrink-0">
-              <div className="flex items-center justify-between text-xs text-base-content/60">
-                <span>Keystrokes captured: <strong className="text-base-content">{phase1KeyCount}</strong> / 40 minimum</span>
+            {/* Footer with accurate full-snippet progress */}
+            <div className="px-5 pb-4 space-y-2 shrink-0">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-base-content/70">
+                  Snippet completion: <strong className="text-base-content">{typedCharsCount}</strong> of <strong>{SNIPPET_TARGET_CHARS}</strong> code characters typed ({phase1KeyCount} keystrokes)
+                </span>
                 <span className={`font-mono font-bold ${phase1Ready ? 'text-success' : 'text-primary'}`}>
-                  {Math.min(100, Math.round((phase1KeyCount / 40) * 100))}%
+                  {phase1Progress}%
                 </span>
               </div>
               <progress
-                className="progress progress-primary w-full h-1.5"
-                value={Math.min(100, Math.round((phase1KeyCount / 40) * 100))}
+                className={`progress w-full h-2 transition-all duration-200 ${phase1Ready ? 'progress-success' : 'progress-primary'}`}
+                value={phase1Progress}
                 max="100"
               />
               <div className="flex items-center justify-between pt-1">
                 <button onClick={skipWithDefaults} className="btn btn-ghost btn-sm text-xs text-base-content/40">
-                  Skip all
+                  Skip calibration
                 </button>
                 <button
                   onClick={advanceToPhase2}
                   disabled={!phase1Ready}
                   className="btn btn-primary btn-sm gap-2"
                 >
-                  {phase1Ready ? <CheckCircle2 className="w-4 h-4" /> : <Keyboard className="w-4 h-4 animate-pulse" />}
-                  {phase1Ready ? 'Continue to Step 2' : `Type ${Math.max(0, 40 - phase1KeyCount)} more keys…`}
-                  {phase1Ready && <ArrowRight className="w-3.5 h-3.5" />}
+                  {phase1Ready ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                      <span>Snippet Complete! Continue to Step 2</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  ) : (
+                    <>
+                      <Keyboard className="w-4 h-4 animate-pulse" />
+                      <span>Type whole snippet to proceed ({phase1Progress}%)</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -426,26 +469,36 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
 
             {/* Question banner */}
             <div className="bg-secondary/8 border border-secondary/25 rounded-2xl p-4 space-y-2">
-              <div className="flex items-center gap-2 font-bold text-sm text-secondary">
-                <MessageSquare className="w-4 h-4" />
-                Step 2 of 2 — Answer a personal question
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-bold text-sm text-secondary">
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Step 2 of 2 — Answer a Personal Question</span>
+                </div>
+                <span className="text-xs font-mono font-semibold text-secondary">
+                  {phase2Progress}%
+                </span>
               </div>
-              <p className="text-sm text-base-content leading-relaxed">
+              <p className="text-sm text-base-content font-medium leading-relaxed">
                 {PERSONAL_QUESTION.prompt}
               </p>
-              <p className="text-[11px] text-base-content/50 leading-snug">
-                Type your answer naturally below — pause to think, edit your words, write 2–4 sentences. This answer will be visible to your evaluator to provide context about you.
+              <p className="text-[11px] text-base-content/55 leading-snug">
+                Type your answer from thought. Pauses to think, sentence revisions, and backspaces are authentic and expected. Evaluators will also see your statement for perspective.
               </p>
             </div>
 
             {/* Answer textarea */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-base-content/70 flex items-center gap-1.5">
-                <Brain className="w-3.5 h-3.5 text-secondary" />
-                Your answer (type from memory — no copy-paste):
+              <label className="text-xs font-semibold text-base-content/70 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Brain className="w-3.5 h-3.5 text-secondary" />
+                  Your answer (type naturally from memory — 2–3 sentences):
+                </span>
+                <span className="font-mono text-[11px] text-base-content/50">
+                  {thoughtText.trim().length} / {PHASE2_TARGET_CHARS} characters minimum
+                </span>
               </label>
               <textarea
-                className="textarea textarea-bordered w-full h-36 text-sm font-sans leading-relaxed resize-none focus:outline-primary focus:border-primary"
+                className="textarea textarea-bordered w-full h-32 text-sm font-sans leading-relaxed resize-none focus:outline-secondary focus:border-secondary"
                 placeholder={PERSONAL_QUESTION.placeholder}
                 value={thoughtText}
                 onChange={(e) => setThoughtText(e.target.value)}
@@ -454,32 +507,51 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
                 autoFocus
                 spellCheck
               />
-              <div className="flex items-center justify-between text-[11px] text-base-content/50">
-                <span>Characters typed: <strong>{thoughtText.length}</strong> (aim for 80+)</span>
-                <span>{phase2KeyCount} keystrokes captured</span>
-              </div>
             </div>
 
-            <div className="alert alert-info py-2 px-3 text-xs rounded-xl">
+            {/* Phase 2 Progress bar */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-base-content/70">
+                <span>Response completion: <strong className="text-base-content">{thoughtText.trim().length}</strong> of {PHASE2_TARGET_CHARS} characters typed</span>
+                <span className={`font-mono font-bold ${phase2Ready ? 'text-success' : 'text-secondary'}`}>
+                  {phase2Progress}%
+                </span>
+              </div>
+              <progress
+                className={`progress w-full h-2 transition-all duration-200 ${phase2Ready ? 'progress-success' : 'progress-secondary'}`}
+                value={phase2Progress}
+                max="100"
+              />
+            </div>
+
+            <div className="alert alert-info py-2 px-3 text-xs rounded-xl flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 shrink-0" />
               <span>
-                <strong>Timing only, content is visible to your evaluator.</strong> Write honestly — this helps evaluators understand your background and gives the system your natural thinking-while-typing cadence.
+                <strong>Evaluator Perspective:</strong> Your written answer will provide context about your programming background to your evaluator during grading.
               </span>
             </div>
 
             <div className="flex items-center justify-between pt-1">
               <button onClick={skipWithDefaults} className="btn btn-ghost btn-sm text-xs text-base-content/40">
-                Skip all
+                Skip calibration
               </button>
               <button
                 onClick={buildAndComplete}
                 disabled={!phase2Ready}
                 className="btn btn-secondary btn-sm gap-2"
               >
-                {phase2Ready
-                  ? <><CheckCircle2 className="w-4 h-4" /> Start Assessment <ArrowRight className="w-3.5 h-3.5" /></>
-                  : <><Sparkles className="w-4 h-4 animate-pulse" /> {`Type ${Math.max(0, 30 - phase2KeyCount)} more keys…`}</>
-                }
+                {phase2Ready ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-white" />
+                    <span>Complete Calibration & Start Assessment</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                    <span>Write a bit more ({phase2Progress}%)</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
