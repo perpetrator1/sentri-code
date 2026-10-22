@@ -34,6 +34,11 @@ const PRESET_PROFILES: {
       baselineEntropy: 0.86,
       naturalPauseThresholdMs: 1300,
       naturalBackspaceRate: 0.08,
+      transcriptionMeanFlightTime: 72,
+      transcriptionVarianceFlightTime: 550,
+      transcriptionBackspaceRate: 0.03,
+      candidateStatement: 'I built a distributed cache in Rust to learn systems programming. Managing lifetimes and async concurrency gave me a deep appreciation for memory safety.',
+      personalQuestionAsked: 'Describe a project you built and one thing you learned.',
       recordedAt: Date.now(),
       sampleCount: 50,
     },
@@ -52,6 +57,11 @@ const PRESET_PROFILES: {
       baselineEntropy: 0.82,
       naturalPauseThresholdMs: 1800,
       naturalBackspaceRate: 0.10,
+      transcriptionMeanFlightTime: 125,
+      transcriptionVarianceFlightTime: 950,
+      transcriptionBackspaceRate: 0.04,
+      candidateStatement: 'TypeScript is my strongest language. I created a full-stack Kanban board with React and Express, which taught me state management and relational data modeling.',
+      personalQuestionAsked: 'What is your strongest programming language and a project you built?',
       recordedAt: Date.now(),
       sampleCount: 50,
     },
@@ -70,6 +80,11 @@ const PRESET_PROFILES: {
       baselineEntropy: 0.78,
       naturalPauseThresholdMs: 2500,
       naturalBackspaceRate: 0.12,
+      transcriptionMeanFlightTime: 185,
+      transcriptionVarianceFlightTime: 1600,
+      transcriptionBackspaceRate: 0.05,
+      candidateStatement: 'I started coding in Python for data analytics. Working on parsing large CSV datasets pushed me to learn algorithms and hash map lookups to optimize runtime.',
+      personalQuestionAsked: 'How did you get started with programming?',
       recordedAt: Date.now(),
       sampleCount: 50,
     },
@@ -385,24 +400,42 @@ function solution(numbers) {
             {/* Calibrated Baseline Values */}
             <div className="grid grid-cols-4 gap-2 text-center pt-1 border-t border-base-300">
               <div className="bg-base-100 p-2 rounded-lg border border-base-300">
-                <div className="text-[9px] text-base-content/60 uppercase font-semibold">Base Flight (μ)</div>
+                <div className="text-[9px] text-base-content/60 uppercase font-semibold">Mind Flight (μ)</div>
                 <div className="text-sm font-mono font-bold text-base-content mt-0.5">{baselineMean}ms</div>
+                <div className="text-[9px] text-base-content/40">From Memory</div>
+              </div>
+              <div className="bg-base-100 p-2 rounded-lg border border-base-300">
+                <div className="text-[9px] text-base-content/60 uppercase font-semibold">Read & Type (tx)</div>
+                <div className="text-sm font-mono font-bold text-warning mt-0.5">
+                  {baseline.transcriptionMeanFlightTime ? `${baseline.transcriptionMeanFlightTime}ms` : '—'}
+                </div>
+                <div className="text-[9px] text-base-content/40">Phase 1 Snippet</div>
               </div>
               <div className="bg-base-100 p-2 rounded-lg border border-base-300">
                 <div className="text-[9px] text-base-content/60 uppercase font-semibold">Base Jitter (σ²)</div>
                 <div className="text-sm font-mono font-bold text-base-content mt-0.5">{baselineVar}ms²</div>
+                <div className="text-[9px] text-base-content/40">Flight Variance</div>
               </div>
               <div className="bg-base-100 p-2 rounded-lg border border-base-300">
                 <div className="text-[9px] text-base-content/60 uppercase font-semibold">Glance Pause (t)</div>
                 <div className="text-sm font-mono font-bold text-base-content mt-0.5">
                   {( (baseline.naturalPauseThresholdMs || 1800) / 1000).toFixed(1)}s
                 </div>
-              </div>
-              <div className="bg-base-100 p-2 rounded-lg border border-base-300">
-                <div className="text-[9px] text-base-content/60 uppercase font-semibold">Natural Entropy (H)</div>
-                <div className="text-sm font-mono font-bold text-base-content mt-0.5">{baselineEntropy}</div>
+                <div className="text-[9px] text-base-content/40">Saccadic Threshold</div>
               </div>
             </div>
+
+            {/* Candidate Mind Statement Quote (if captured in Phase 2) */}
+            {baseline.candidateStatement && (
+              <div className="bg-base-100/80 p-2.5 rounded-xl border border-base-300 text-xs space-y-1">
+                <div className="text-[10px] uppercase font-bold text-secondary flex items-center gap-1">
+                  <span>🧠 Calibrated Mind Response (Phase 2):</span>
+                </div>
+                <p className="text-[11px] text-base-content/75 italic leading-relaxed pl-2 border-l-2 border-secondary/40">
+                  "{baseline.candidateStatement}"
+                </p>
+              </div>
+            )}
           </div>
 
           {/* 3. Personalized Relative Divergence Gauges */}

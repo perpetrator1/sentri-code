@@ -22,7 +22,7 @@ export type KeystrokeEventTuple = [
 export interface BaselineCalibration {
   id?: string;
   candidateId: string;
-  meanFlightTime: number; // in ms
+  meanFlightTime: number; // in ms — from Phase 2 (cognitive/authentic typing)
   varianceFlightTime: number;
   stdDevFlightTime?: number;
   meanDwellTime: number; // in ms
@@ -33,6 +33,15 @@ export interface BaselineCalibration {
   recordedAt: number;
   sampleCount: number;
   lastAdaptedAt?: number;
+
+  // Phase 1 — "Read & Type" calibration (transcription pattern, used as reference for detection)
+  transcriptionMeanFlightTime?: number;
+  transcriptionVarianceFlightTime?: number;
+  transcriptionBackspaceRate?: number;
+
+  // Phase 2 — "From the Mind" personal context (stored for examiner context)
+  candidateStatement?: string; // Answer to personal question (evaluator-facing, candidly volunteered)
+  personalQuestionAsked?: string;
 }
 
 export interface SlidingWindowMetrics {

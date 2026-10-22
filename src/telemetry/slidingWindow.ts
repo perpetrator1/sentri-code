@@ -299,6 +299,29 @@ export function analyzeWindow(
     }
   }
 
+  // ── PERSONALIZED VECTOR E: Empirical Transcription Signature Match (Phase 1 Calibration) ──
+  // If the candidate completed Phase 1 (Read & Type), compare live cadence against their exact empirical transcription signature
+  if (
+    baseline?.transcriptionMeanFlightTime &&
+    baseline?.transcriptionVarianceFlightTime &&
+    count >= 20 &&
+    !hasStructuralRefactoring
+  ) {
+    const txMean = baseline.transcriptionMeanFlightTime;
+    const txVar = baseline.transcriptionVarianceFlightTime;
+    const flightRatioToTx = meanFlight / txMean;
+
+    // Live typing matches their calibrated transcription speed (within 25%) and jitter is flattened
+    if (flightRatioToTx >= 0.75 && flightRatioToTx <= 1.25 && intraBurstVariance <= txVar * 1.4) {
+      confidence -= 0.35;
+      isTranscribingAnomaly = true;
+      if (!anomalyReason) {
+        anomalySeverity = 'high';
+        anomalyReason = `Transcription signature match: live cadence (${Math.round(meanFlight)}ms, ${Math.round(intraBurstVariance)}ms²) matches calibrated Phase 1 read-and-type profile (${txMean}ms, ${txVar}ms²)`;
+      }
+    }
+  }
+
   // ── REASSURANCE BOOST: Authentic Conceptual Problem Solving ──
   if (hasStructuralRefactoring && refactoringIndex >= 0.10) {
     confidence = Math.min(1.0, confidence + 0.08);

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import {
   ArrowLeft, Play, Pause, RotateCcw,
-  ShieldCheck, Clock, AlertTriangle, BookOpen, CheckCircle2,
+  ShieldCheck, Clock, AlertTriangle, BookOpen, CheckCircle2, MessageSquare, Brain,
 } from 'lucide-react';
 import type { SubmissionPayload, CodeSnapshot } from '../../types';
 import { db, seedReplaySnapshots } from '../../db';
@@ -208,17 +208,25 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
           {/* Telemetry comparison */}
           <div className="p-4 space-y-3 border-b border-base-300">
             <h4 className="text-xs font-bold uppercase tracking-widest text-base-content/50">
-              Baseline vs Live
+              Biometric Comparison
             </h4>
-            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-              <div className="bg-base-200 rounded-xl p-3 space-y-1.5 border border-base-300">
-                <div className="text-[10px] text-base-content/50 font-sans uppercase tracking-wider mb-1">Warm-up</div>
+            <div className="grid grid-cols-3 gap-1.5 text-xs font-mono">
+              <div className="bg-base-200 rounded-xl p-2.5 space-y-1 border border-base-300">
+                <div className="text-[9px] text-base-content/50 font-sans uppercase tracking-wider mb-1">Cognitive Baseline</div>
                 <div>Flight: {submission.baseline.meanFlightTime}ms</div>
-                <div>Variance: {submission.baseline.varianceFlightTime}</div>
+                <div>Var: {submission.baseline.varianceFlightTime}</div>
                 <div>Dwell: {submission.baseline.meanDwellTime}ms</div>
               </div>
-              <div className="bg-base-200 rounded-xl p-3 space-y-1.5 border border-base-300">
-                <div className="text-[10px] text-base-content/50 font-sans uppercase tracking-wider mb-1">Live Exam</div>
+              {submission.baseline.transcriptionMeanFlightTime && (
+                <div className="bg-warning/8 rounded-xl p-2.5 space-y-1 border border-warning/25">
+                  <div className="text-[9px] text-warning/70 font-sans uppercase tracking-wider mb-1">Read & Type</div>
+                  <div>Flight: {submission.baseline.transcriptionMeanFlightTime}ms</div>
+                  <div>Var: {submission.baseline.transcriptionVarianceFlightTime}</div>
+                  <div>BS: {((submission.baseline.transcriptionBackspaceRate ?? 0) * 100).toFixed(1)}%</div>
+                </div>
+              )}
+              <div className="bg-base-200 rounded-xl p-2.5 space-y-1 border border-base-300">
+                <div className="text-[9px] text-base-content/50 font-sans uppercase tracking-wider mb-1">Live Exam</div>
                 <div className={submission.telemetrySummary.meanFlightTime < 100 ? 'text-warning font-bold' : ''}>
                   Flight: {submission.telemetrySummary.meanFlightTime}ms
                 </div>
@@ -230,6 +238,24 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
               Cognitive pauses: <strong>{Math.round(submission.telemetrySummary.cognitivePauseRatio * 100)}%</strong> of exam time
             </div>
           </div>
+
+          {/* Candidate personal statement */}
+          {submission.baseline.candidateStatement && (
+            <div className="p-4 space-y-2 border-b border-base-300">
+              <h4 className="text-xs font-bold uppercase tracking-widest text-base-content/50 flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-secondary" />
+                Candidate's Statement
+              </h4>
+              {submission.baseline.personalQuestionAsked && (
+                <p className="text-[10px] text-base-content/45 italic leading-snug">
+                  Q: {submission.baseline.personalQuestionAsked}
+                </p>
+              )}
+              <blockquote className="text-xs text-base-content/80 leading-relaxed bg-secondary/5 border-l-2 border-secondary/40 pl-3 py-1 rounded-r-lg">
+                {submission.baseline.candidateStatement}
+              </blockquote>
+            </div>
+          )}
 
           {/* Anomaly feed */}
           <div className="p-4 space-y-2.5 border-b border-base-300 flex-1">
