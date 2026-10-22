@@ -290,24 +290,36 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
       const scores = allWindowScoresRef.current;
 
       // Calculate baseline average confidence across all typing windows
-      let holisticConfidence = scores.length > 0
+      const totalWindows = Math.max(1, scores.length);
+      const rawAvg = scores.length > 0
         ? scores.reduce((a, b) => a + b, 0) / scores.length
         : currentMetrics.integrityConfidence;
 
-      const sessionBackspaceRate = totalKeys > 0 ? totalBackspaces / totalKeys : 0.1;
+      let holisticConfidence = rawAvg;
+      const sessionBackspaceRate = totalKeys > 0 ? totalBackspaces / totalKeys : 0.08;
+      const anomaliesCount = anomalyTimeline.length;
 
-      // Global Session Evaluation
-      if (totalKeys >= 40) {
-        if (anomalyTimeline.length >= 2) {
-          // Multiple pattern anomalies (saccadic glance bursts, metronomic cadence)
-          holisticConfidence = Math.min(holisticConfidence, 0.40);
-        } else if (anomalyTimeline.length === 1) {
-          holisticConfidence = Math.min(holisticConfidence, 0.55);
-        } else if (sessionBackspaceRate < 0.03) {
-          holisticConfidence = Math.min(holisticConfidence, 0.45);
-        } else if (sessionBackspaceRate >= 0.07) {
-          // Organic coding with healthy backspacing & refactoring
-          holisticConfidence = Math.min(1.0, holisticConfidence + 0.05);
+      // Holistic Session Integrity Evaluation
+      if (totalKeys >= 30) {
+        const anomalyDensity = anomaliesCount / totalWindows;
+
+        if (anomaliesCount === 0) {
+          // Clean session: high authentic human confidence (88% - 98%)
+          holisticConfidence = Math.min(0.98, Math.max(0.88, rawAvg));
+        } else if (anomaliesCount === 1 && totalWindows >= 4) {
+          // Single isolated anomaly flutter in an otherwise healthy session
+          holisticConfidence = Math.min(0.92, Math.max(0.80, rawAvg - 0.06));
+        } else if (anomaliesCount >= 2 && (anomalyDensity >= 0.25 || anomaliesCount >= 3)) {
+          // Chronic, recurring transcription anomalies across multiple windows (sight-typing)
+          holisticConfidence = Math.min(0.45, Math.max(0.25, rawAvg - (anomalyDensity * 0.5)));
+        } else {
+          // Minor anomalies: proportional deduction based on anomaly density
+          holisticConfidence = Math.max(0.40, rawAvg - (anomalyDensity * 0.35));
+        }
+
+        // Reinforce authentic coding with healthy cognitive pauses and self-corrections
+        if (currentMetrics.pauseDistribution.cognitive >= 0.15 && sessionBackspaceRate >= 0.04) {
+          holisticConfidence = Math.min(0.98, holisticConfidence + 0.04);
         }
       }
 
@@ -315,7 +327,7 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
         holisticConfidence = Math.min(holisticConfidence, 0.45);
       }
 
-      const finalConfidence = Math.max(0.15, Math.min(1.0, Number(holisticConfidence.toFixed(2))));
+      const finalConfidence = Math.max(0.15, Math.min(0.98, Number(holisticConfidence.toFixed(2))));
 
       const curBase = baselineRef.current;
       const speedDivergenceRatio = Number((curBase.meanFlightTime / Math.max(45, currentMetrics.digraphLatencyMean)).toFixed(2));

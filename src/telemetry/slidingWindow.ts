@@ -75,7 +75,8 @@ export function analyzeWindow(
   const baselineMean = baseline?.meanFlightTime || 165;
   const baselineVar = baseline?.varianceFlightTime || 2200;
   const baselineEntropy = baseline?.baselineEntropy || 0.82;
-  const glancePauseMin = baseline?.naturalPauseThresholdMs || Math.max(1100, Math.round(baselineMean * 3.2));
+  // Personalized Glance Pause Boundaries: human gaze saccades to secondary screen take 1.4s–4.8s
+  const glancePauseMin = Math.max(1400, Math.min(2000, baseline?.naturalPauseThresholdMs || 1600));
   const glancePauseMax = Math.max(4800, Math.round(baselineMean * 9.0));
 
   if (count < 8) {
@@ -121,8 +122,10 @@ export function analyzeWindow(
         rapidBurstCount++;
       } else if (flightTime >= 180 && flightTime <= 750) {
         microPauses++;
-      } else if (flightTime > 750 && flightTime <= glancePauseMax) {
+      } else if (flightTime > 750 && flightTime < glancePauseMin) {
         cognitivePauses++;
+      } else if (flightTime >= glancePauseMin && flightTime <= glancePauseMax) {
+        // Glance pause range (measured by chunk segmentation below)
       } else if (flightTime > glancePauseMax) {
         deepIdle++;
       }
@@ -219,7 +222,13 @@ export function analyzeWindow(
   const burstinessRatio = flightTimes.length > 0 ? rapidBurstCount / flightTimes.length : 0.3;
   const metronomicEntropy = calculateShannonEntropy(flightTimes);
   const refactoringIndex = Number(((backspaceCount + navCount) / count).toFixed(3));
-  const hasStructuralRefactoring = maxConsecutiveBackspaces >= 4 || navCount >= 4;
+  
+  // Authentic coding characteristics (structural refactoring, cross-line navigation)
+  // Isolated 1-2 backspaces are merely motor-slips (which transcribers also make)
+  const hasStructuralRefactoring = maxConsecutiveBackspaces >= 4 || navCount >= 3;
+  const hasAuthenticEdits = hasStructuralRefactoring;
+  const hasCognitivePauses = cognitivePauses >= 1;
+  const hasOrganicCadence = metronomicEntropy >= 0.65;
 
   // 4. Pause Distribution
   const totalPauses = (microPauses + cognitivePauses + deepIdle) || 1;
@@ -232,7 +241,7 @@ export function analyzeWindow(
   // ── 5. PERSONALIZED DIVERGENCE METRICS ──
   // Speed Ratio: > 1.8x personal baseline indicates unnatural burst velocity
   const speedRatio = Number((baselineMean / Math.max(45, meanFlight)).toFixed(2));
-  // Variance Ratio: < 0.28 indicates cadence collapsed to a robotic beat relative to personal jitter
+  // Variance Ratio: < 0.22 indicates cadence collapsed to a robotic beat relative to personal jitter
   const varianceRatio = Number((intraBurstVariance / Math.max(400, baselineVar)).toFixed(2));
   // Entropy Delta: collapse from personal baseline entropy
   const entropyDelta = Number((baselineEntropy - metronomicEntropy).toFixed(2));
@@ -243,77 +252,70 @@ export function analyzeWindow(
   let anomalySeverity: 'low' | 'medium' | 'high' = 'low';
 
   // ── PERSONALIZED VECTOR A: Saccadic Glance-Burst Rhythm ──
+  // Periodic glance pauses (1.5s–5s looking away to phone/second screen) followed by flat memory bursts
   const saccadicChunks = chunks.filter(c => 
-    c.pauseBeforeMs >= glancePauseMin && 
+    c.pauseBeforeMs >= 1500 && 
     c.pauseBeforeMs <= glancePauseMax && 
     c.charCount >= 10 && 
-    c.charCount <= 42 &&
-    c.intraFlightVariance < (baselineVar * 0.45) // rhythmically flat relative to personal baseline
+    c.charCount <= 45 &&
+    c.intraFlightVariance < (baselineVar * 0.42) // rhythmically flat relative to personal baseline
   );
 
-  if (saccadicChunks.length >= 2 && !hasStructuralRefactoring) {
-    confidence -= 0.42;
+  if (saccadicChunks.length >= 2 && !hasAuthenticEdits) {
+    confidence -= 0.45;
     isTranscribingAnomaly = true;
     anomalySeverity = 'high';
-    anomalyReason = `Saccadic transcription rhythm: detected ${saccadicChunks.length} periodic glance pauses (${(glancePauseMin/1000).toFixed(1)}-${(glancePauseMax/1000).toFixed(1)}s) followed by memory bursts`;
+    anomalyReason = `Saccadic transcription rhythm: detected ${saccadicChunks.length} periodic glance pauses (1.5s–5s) followed by flat memory bursts`;
   }
 
   // ── PERSONALIZED VECTOR B: Personal Variance Collapse (Sight-Typing Beat) ──
-  // If their flight variance collapsed to less than 28% of their calibrated natural variance
-  if (intraFlights.length >= 16 && varianceRatio < 0.28 && !hasStructuralRefactoring) {
+  // Cadence collapsed to a flat robotic beat relative to candidate's own natural jitter
+  if (intraFlights.length >= 16 && varianceRatio < 0.25 && !hasAuthenticEdits) {
     confidence -= 0.35;
     isTranscribingAnomaly = true;
     if (!anomalyReason) {
-      anomalySeverity = varianceRatio < 0.18 ? 'high' : 'medium';
+      anomalySeverity = varianceRatio < 0.15 ? 'high' : 'medium';
       anomalyReason = `Cadence flattening: typing variance collapsed to ${(varianceRatio * 100).toFixed(0)}% of personal baseline (${Math.round(intraBurstVariance)}ms² vs calibrated ${baselineVar}ms²)`;
     }
   }
 
   // ── PERSONALIZED VECTOR C: Velocity Acceleration without Refactoring ──
-  // If typing at 1.9x+ their calibrated baseline speed with zero structural refactoring
-  if (count >= 25 && speedRatio >= 1.85 && !hasStructuralRefactoring) {
+  // Typing at more than double their calibrated natural speed without refactoring
+  if (count >= 25 && speedRatio >= 1.95 && !hasAuthenticEdits) {
     confidence -= 0.30;
     isTranscribingAnomaly = true;
     if (!anomalyReason) {
-      anomalySeverity = speedRatio >= 2.2 ? 'high' : 'medium';
+      anomalySeverity = speedRatio >= 2.3 ? 'high' : 'medium';
       anomalyReason = `Abnormal acceleration: typing at ${speedRatio}x personal baseline speed (${Math.round(meanFlight)}ms vs calibrated ${baselineMean}ms) without refactoring`;
     }
   }
 
-  // ── PERSONALIZED VECTOR D: Motor Slips Only (Absence of Conceptual Refactoring) ──
-  if (count >= 35 && !hasStructuralRefactoring) {
-    if (backspaceCount === 0) {
-      confidence -= 0.35;
-      isTranscribingAnomaly = true;
-      if (!anomalyReason) {
-        anomalySeverity = 'medium';
-        anomalyReason = 'Linear photocopy anomaly: 35+ consecutive tokens typed with zero corrections';
-      }
-    } else if (backspaceCount <= 2 && entropyDelta > 0.18) {
-      confidence -= 0.25;
-      isTranscribingAnomaly = true;
-      if (!anomalyReason) {
-        anomalySeverity = 'medium';
-        anomalyReason = 'Superficial refactoring: only isolated 1-2 key motor slip corrections with continuous linear append';
-      }
+  // ── PERSONALIZED VECTOR D: Linear Photocopy Anomaly ──
+  // Requires a long sequence (45+ keys) with ZERO corrections AND robotic cadence collapse (not normal clean coding)
+  if (count >= 45 && backspaceCount === 0 && varianceRatio < 0.25 && entropyDelta > 0.22) {
+    confidence -= 0.35;
+    isTranscribingAnomaly = true;
+    if (!anomalyReason) {
+      anomalySeverity = 'medium';
+      anomalyReason = 'Linear photocopy anomaly: sustained tokens typed with zero corrections and robotic cadence collapse';
     }
   }
 
   // ── PERSONALIZED VECTOR E: Empirical Transcription Signature Match (Phase 1 Calibration) ──
-  // If the candidate completed Phase 1 (Read & Type), compare live cadence against their exact empirical transcription signature
+  // Matches Phase 1 transcription speed and variance COMBINED with saccadic glance pauses
   if (
     baseline?.transcriptionMeanFlightTime &&
     baseline?.transcriptionVarianceFlightTime &&
     count >= 20 &&
-    !hasStructuralRefactoring
+    (saccadicChunks.length >= 1 || varianceRatio < 0.30) &&
+    !hasAuthenticEdits
   ) {
     const txMean = baseline.transcriptionMeanFlightTime;
     const txVar = baseline.transcriptionVarianceFlightTime;
     const flightRatioToTx = meanFlight / txMean;
 
-    // Live typing matches their calibrated transcription speed (within 25%) and jitter is flattened
-    if (flightRatioToTx >= 0.75 && flightRatioToTx <= 1.25 && intraBurstVariance <= txVar * 1.4) {
-      confidence -= 0.35;
+    if (flightRatioToTx >= 0.75 && flightRatioToTx <= 1.25 && intraBurstVariance <= txVar * 1.35) {
+      confidence -= 0.40;
       isTranscribingAnomaly = true;
       if (!anomalyReason) {
         anomalySeverity = 'high';
@@ -323,8 +325,8 @@ export function analyzeWindow(
   }
 
   // ── REASSURANCE BOOST: Authentic Conceptual Problem Solving ──
-  if (hasStructuralRefactoring && refactoringIndex >= 0.10) {
-    confidence = Math.min(1.0, confidence + 0.08);
+  if (hasAuthenticEdits || (hasCognitivePauses && hasOrganicCadence)) {
+    confidence = Math.min(0.98, confidence + 0.05);
   }
 
   confidence = Math.max(0.15, Math.min(1.0, Number(confidence.toFixed(2))));
