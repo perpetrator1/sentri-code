@@ -1,0 +1,55 @@
+# Dependencies (auto-installed via npm ci / npm install)
+node_modules/
+
+# Production Build Outputs (re-generated on `npm run build`)
+dist/
+dist-ssr/
+build/
+
+# Local SQLite Database & Runtime Journal Files
+# (Database automatically initializes and seeds on first server run via server/db.ts)
+server/data/*.sqlite
+server/data/*.sqlite-shm
+server/data/*.sqlite-wal
+*.sqlite
+*.sqlite3
+*.db
+
+# Environment Secrets & Local Overrides (use .env.example as template)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs & Debugging Artifacts
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime Cache & Temp Dirs
+.vite/
+.cache/
+.eslintcache
+*.tsbuildinfo
+tmp/
+temp/
+
+# Operating System Metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor User Configurations
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo

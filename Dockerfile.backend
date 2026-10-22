@@ -1,0 +1,24 @@
+# Dockerfile for Sentri Code Express API & Sandboxed Code Runner
+FROM node:22-alpine
+
+# Install Python 3 for the code runner engine
+RUN apk add --no-cache python3 py3-pip
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+# Copy server and configuration files
+COPY server ./server
+COPY tsconfig.json ./
+
+# Create data directory for persistent SQLite database
+RUN mkdir -p /app/server/data
+
+ENV PORT=4000
+ENV NODE_ENV=production
+
+EXPOSE 4000
+
+CMD ["npm", "run", "server"]
