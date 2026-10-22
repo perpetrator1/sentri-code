@@ -14,10 +14,10 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
   // Candidate's baseline typing profile
   const [baseline, setBaseline] = useState<BaselineCalibration>({
     candidateId,
-    meanFlightTime: 175,
-    varianceFlightTime: 2300,
-    meanDwellTime: 82,
-    naturalBurstVelocity: 250,
+    meanFlightTime: 165,
+    varianceFlightTime: 2200,
+    meanDwellTime: 78,
+    naturalBurstVelocity: 255,
     recordedAt: Date.now(),
     sampleCount: 50,
   });
@@ -25,11 +25,11 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
   const [currentMetrics, setCurrentMetrics] = useState<SlidingWindowMetrics>({
     windowSize: 0,
     digraphLatencyMean: 175,
-    digraphLatencyVariance: 2300,
+    digraphLatencyVariance: 2200,
     trigraphLatencyMean: 350,
     burstinessRatio: 0.35,
-    metronomicEntropy: 0.82,
-    refactoringIndex: 0.22,
+    metronomicEntropy: 0.85,
+    refactoringIndex: 0.20,
     pauseDistribution: { micro: 0.45, cognitive: 0.45, deepIdle: 0.1 },
     integrityConfidence: 0.98,
     isTranscribingAnomaly: false,
@@ -38,8 +38,13 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
   const [anomalyTimeline, setAnomalyTimeline] = useState<AnomalyTimelineEntry[]>([]);
   const [keystrokeCount, setKeystrokeCount] = useState(0);
   const [lastCognitivePauseTimestamp, setLastCognitivePauseTimestamp] = useState<number | null>(null);
+  const [isAdapting, setIsAdapting] = useState(false);
 
   // Mutable tracking references
+  const baselineRef = useRef<BaselineCalibration>(baseline);
+  baselineRef.current = baseline;
+  const lastAdaptKeystrokeRef = useRef<number>(0);
+  const adaptationCountRef = useRef<number>(0);
   const slidingBufferRef = useRef<KeystrokeEventTuple[]>([]);
   const pendingBatchRef = useRef<KeystrokeEventTuple[]>([]);
   const activeKeysDownRef = useRef<Map<string, number>>(new Map()); // code -> timestamp
@@ -49,6 +54,10 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
   const pasteCountRef = useRef<number>(0);
   const refactorCountRef = useRef<number>(0);
   const cognitivePausesCountRef = useRef<number>(0);
+
+  // History of all evaluated sliding window confidence scores
+  const allWindowScoresRef = useRef<number[]>([]);
+  const lastRecordedAnomalyTimeRef = useRef<number>(0);
 
   // Load existing baseline from Dexie if available
   useEffect(() => {
@@ -108,7 +117,7 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
       // Flight time = interval since last key up
       const flightTime = Math.max(0, Math.round(now - lastKeyUpTimestampRef.current));
 
-      // Check if this was a cognitive pause (>800ms)
+      // Check if this was a pause (>800ms)
       if (flightTime >= 800) {
         cognitivePausesCountRef.current++;
         setLastCognitivePauseTimestamp(Date.now());
@@ -140,26 +149,71 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
 
       // Queue for Dexie persistence
       pendingBatchRef.current.push(tuple);
+      const newKeystrokeCount = keystrokeCount + 1;
       setKeystrokeCount((prev) => prev + 1);
 
-      // Run feature engineering on the sliding window
-      const metrics = analyzeWindow(buffer, baseline);
+      // Run personalized pattern-based feature engineering on the sliding window
+      const curBase = baselineRef.current;
+      const metrics = analyzeWindow(buffer, curBase);
       setCurrentMetrics(metrics);
 
-      // If an anomaly is detected, record on timeline
-      if (metrics.isTranscribingAnomaly || metrics.integrityConfidence < 0.65) {
-        const reason =
-          metrics.metronomicEntropy < 0.5
-            ? 'Metronomic cadence: flat flight-time variance across consecutive tokens'
-            : metrics.refactoringIndex === 0
-            ? 'Zero refactoring: continuous linear appending without hesitation or corrections'
-            : 'Cadence divergence from baseline calibration';
+      // Accumulate window scores for holistic session accuracy
+      if (buffer.length >= 12) {
+        allWindowScoresRef.current.push(metrics.integrityConfidence);
+      }
+
+      // Online Adaptive Learning: EMA update on verified authentic human coding windows
+      const keysSinceAdapt = newKeystrokeCount - lastAdaptKeystrokeRef.current;
+      const isAuthenticWindow =
+        metrics.integrityConfidence >= 0.88 &&
+        !metrics.isTranscribingAnomaly &&
+        (metrics.refactoringIndex >= 0.06 || metrics.pauseDistribution.cognitive >= 0.15);
+
+      if (buffer.length >= 15 && keysSinceAdapt >= 25 && isAuthenticWindow) {
+        lastAdaptKeystrokeRef.current = newKeystrokeCount;
+        adaptationCountRef.current++;
+        setIsAdapting(true);
+
+        const alpha = 0.04; // Smooth EMA learning rate (4% drift per cycle)
+        const newMean = Math.round((1 - alpha) * curBase.meanFlightTime + alpha * metrics.digraphLatencyMean);
+        const newVar = Math.round((1 - alpha) * curBase.varianceFlightTime + alpha * metrics.digraphLatencyVariance);
+        const newEntropy = Number(
+          ((1 - alpha) * (curBase.baselineEntropy ?? 0.82) + alpha * metrics.metronomicEntropy).toFixed(3)
+        );
+        const newPauseThreshold = Math.max(1200, Math.round(newMean * 3.5));
+
+        const updatedBaseline: BaselineCalibration = {
+          ...curBase,
+          meanFlightTime: newMean,
+          varianceFlightTime: newVar,
+          stdDevFlightTime: Math.round(Math.sqrt(newVar)),
+          baselineEntropy: newEntropy,
+          naturalPauseThresholdMs: newPauseThreshold,
+          lastAdaptedAt: Date.now(),
+        };
+
+        baselineRef.current = updatedBaseline;
+        setBaseline(updatedBaseline);
+        db.baselines.put(updatedBaseline).catch(() => {});
+      } else if (metrics.isTranscribingAnomaly) {
+        // Freeze baseline adaptation immediately upon any anomaly to prevent adversarial poisoning
+        setIsAdapting(false);
+      }
+
+      // If an anomaly is detected, record on timeline (throttled to at most one per 3.5s)
+      const nowMs = Date.now();
+      if (
+        metrics.anomalyReport &&
+        metrics.anomalyReport.isAnomaly &&
+        nowMs - lastRecordedAnomalyTimeRef.current > 3500
+      ) {
+        lastRecordedAnomalyTimeRef.current = nowMs;
 
         const anomalyEntry: AnomalyTimelineEntry = {
-          timestamp: Date.now(),
-          confidenceScore: metrics.integrityConfidence,
-          anomalyReason: reason,
-          severity: metrics.integrityConfidence < 0.4 ? 'high' : 'medium',
+          timestamp: nowMs,
+          confidenceScore: metrics.anomalyReport.confidenceScore,
+          anomalyReason: metrics.anomalyReport.reason,
+          severity: metrics.anomalyReport.severity,
           cursorOffset: currentCursorOffsetRef.current,
           metricsSnapshot: {
             metronomicEntropy: metrics.metronomicEntropy,
@@ -168,13 +222,13 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
           },
         };
 
-        setAnomalyTimeline((prev) => [...prev.slice(-20), anomalyEntry]);
+        setAnomalyTimeline((prev) => [...prev.slice(-30), anomalyEntry]);
 
         // Persist anomaly to Dexie
         db.anomaly_timeline.add(anomalyEntry).catch(() => {});
       }
     },
-    [baseline]
+    [keystrokeCount]
   );
 
   // Process keyup event to record dwell time
@@ -184,7 +238,7 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
     const downTime = activeKeysDownRef.current.get(code);
     activeKeysDownRef.current.delete(code);
 
-    const dwellTime = downTime ? Math.max(0, Math.round(now - downTime)) : 65;
+    const dwellTime = downTime ? Math.max(0, Math.round(now - downTime)) : 70;
     lastKeyUpTimestampRef.current = now;
 
     // Update the last down tuple's dwell time in buffer if applicable
@@ -202,12 +256,12 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
   // Record paste event
   const handlePaste = useCallback((pastedLength: number) => {
     pasteCountRef.current++;
-    if (pastedLength > 25) {
+    if (pastedLength > 20) {
       const anomalyEntry: AnomalyTimelineEntry = {
         timestamp: Date.now(),
-        confidenceScore: 0.55,
-        anomalyReason: `Large clipboard insertion (${pastedLength} characters)`,
-        severity: 'medium',
+        confidenceScore: 0.45,
+        anomalyReason: `Large external clipboard insertion (${pastedLength} characters)`,
+        severity: 'high',
         cursorOffset: currentCursorOffsetRef.current,
       };
       setAnomalyTimeline((prev) => [...prev, anomalyEntry]);
@@ -228,21 +282,60 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
     []
   );
 
-  // Compute telemetry summary for final submission
+  // Compute accurate holistic telemetry summary for final submission
   const getTelemetrySummary = useCallback(
     (referenceQueriesCount = 0, snippetsInsertedCount = 0): TelemetrySummary => {
+      const totalKeys = keystrokeCount;
+      const totalBackspaces = backspaceCountRef.current;
+      const scores = allWindowScoresRef.current;
+
+      // Calculate baseline average confidence across all typing windows
+      let holisticConfidence = scores.length > 0
+        ? scores.reduce((a, b) => a + b, 0) / scores.length
+        : currentMetrics.integrityConfidence;
+
+      const sessionBackspaceRate = totalKeys > 0 ? totalBackspaces / totalKeys : 0.1;
+
+      // Global Session Evaluation
+      if (totalKeys >= 40) {
+        if (anomalyTimeline.length >= 2) {
+          // Multiple pattern anomalies (saccadic glance bursts, metronomic cadence)
+          holisticConfidence = Math.min(holisticConfidence, 0.40);
+        } else if (anomalyTimeline.length === 1) {
+          holisticConfidence = Math.min(holisticConfidence, 0.55);
+        } else if (sessionBackspaceRate < 0.03) {
+          holisticConfidence = Math.min(holisticConfidence, 0.45);
+        } else if (sessionBackspaceRate >= 0.07) {
+          // Organic coding with healthy backspacing & refactoring
+          holisticConfidence = Math.min(1.0, holisticConfidence + 0.05);
+        }
+      }
+
+      if (pasteCountRef.current > 0) {
+        holisticConfidence = Math.min(holisticConfidence, 0.45);
+      }
+
+      const finalConfidence = Math.max(0.15, Math.min(1.0, Number(holisticConfidence.toFixed(2))));
+
+      const curBase = baselineRef.current;
+      const speedDivergenceRatio = Number((curBase.meanFlightTime / Math.max(45, currentMetrics.digraphLatencyMean)).toFixed(2));
+      const varianceDivergenceRatio = Number((currentMetrics.digraphLatencyVariance / Math.max(400, curBase.varianceFlightTime)).toFixed(2));
+
       return {
-        totalKeystrokes: keystrokeCount,
+        totalKeystrokes: totalKeys,
         meanFlightTime: currentMetrics.digraphLatencyMean,
         meanDwellTime: 78,
-        averageIntegrityConfidence: currentMetrics.integrityConfidence,
-        backspaceCount: backspaceCountRef.current,
+        averageIntegrityConfidence: finalConfidence,
+        backspaceCount: totalBackspaces,
         refactoringEdits: refactorCountRef.current,
         cognitivePauseRatio: currentMetrics.pauseDistribution.cognitive,
         pasteEventCount: pasteCountRef.current,
         referenceQueriesCount,
         snippetsInsertedCount,
         anomaliesDetected: anomalyTimeline.length,
+        speedDivergenceRatio,
+        varianceDivergenceRatio,
+        cadenceEntropy: currentMetrics.metronomicEntropy,
       };
     },
     [keystrokeCount, currentMetrics, anomalyTimeline.length]
@@ -254,6 +347,8 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
     anomalyTimeline,
     keystrokeCount,
     lastCognitivePauseTimestamp,
+    isAdapting,
+    adaptationCount: adaptationCountRef.current,
     handleKeyDown,
     handleKeyUp,
     handleCursorChange,

@@ -25,11 +25,14 @@ import { SubmissionModal } from './components/candidate/SubmissionModal';
 // Examiner Review Dashboard
 import { ExaminerDashboard } from './components/examiner/ExaminerDashboard';
 
+// Keystroke Accuracy Lab
+import { KeystrokeLabView } from './components/lab/KeystrokeLabView';
+
 const MainApp: React.FC = () => {
   const { user, logout, isAuthenticated, isLoading } = useAuth();
 
-  // Navigation Mode: Candidate Assessment vs Examiner Forensics
-  const [currentMode, setCurrentMode] = useState<'candidate' | 'examiner'>('candidate');
+  // Navigation Mode: Candidate Assessment vs Examiner Forensics vs Telemetry Lab
+  const [currentMode, setCurrentMode] = useState<'candidate' | 'examiner' | 'lab'>('candidate');
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
 
   // Active Problem & Candidate
@@ -45,7 +48,7 @@ const MainApp: React.FC = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [isTestPanelExpanded, setIsTestPanelExpanded] = useState(true);
 
-  // Reference Manual Modal State
+  // Reference Manual / Docs Modal State
   const [isReferenceOpen, setIsReferenceOpen] = useState(false);
   const [referenceQueryCount, setReferenceQueryCount] = useState(0);
   const [snippetInsertCount, setSnippetInsertCount] = useState(0);
@@ -59,6 +62,26 @@ const MainApp: React.FC = () => {
   const [isOfflineQueued, setIsOfflineQueued] = useState(false);
   const [lastAutosaveTime, setLastAutosaveTime] = useState<number | null>(null);
 
+  // Fullscreen State & Handlers
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    return typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false;
+  });
+
+  const enterFullscreen = useCallback(() => {
+    if (typeof document !== 'undefined' && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (typeof document === 'undefined') return;
+    if (!document.fullscreenElement) {
+      enterFullscreen();
+    } else if (document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, [enterFullscreen]);
+
   // Monaco Editor Reference
   const editorRef = useRef<any>(null);
 
@@ -70,6 +93,40 @@ const MainApp: React.FC = () => {
       setCurrentMode('candidate');
     }
   }, [user?.role]);
+
+  // Fullscreen event listener and automatic entry for candidates
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    // Auto-enter fullscreen in candidate assessment mode
+    if (currentMode === 'candidate') {
+      enterFullscreen();
+
+      // Many browsers require a user gesture; trigger on candidate's first interaction
+      const onUserGesture = () => {
+        if (!document.fullscreenElement) {
+          enterFullscreen();
+        }
+      };
+
+      window.addEventListener('click', onUserGesture, { once: true });
+      window.addEventListener('keydown', onUserGesture, { once: true });
+
+      return () => {
+        document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        window.removeEventListener('click', onUserGesture);
+        window.removeEventListener('keydown', onUserGesture);
+      };
+    }
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [currentMode, enterFullscreen]);
 
   // Keystroke dynamics & inference hook
   const {
@@ -85,13 +142,15 @@ const MainApp: React.FC = () => {
     getTelemetrySummary,
   } = useKeystrokeInference(candidateId, activeProblem.id);
 
-  // Check if baseline exists on mount; if not, suggest warm-up (candidates only)
+  // Check if baseline exists or if fresh session; show warm-up modal for candidates
   useEffect(() => {
     async function checkBaseline() {
       await seedInitialMockDataIfEmpty();
       if (user?.role === 'candidate') {
+        const seenInSession = sessionStorage.getItem('sentri_warmup_seen');
         const existing = await db.baselines.get(candidateId);
-        if (!existing) {
+        // Show if no baseline exists OR if candidate hasn't seen it in this session
+        if (!existing || !seenInSession) {
           setIsWarmupOpen(true);
         }
       }
@@ -106,7 +165,7 @@ const MainApp: React.FC = () => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Handle Ctrl+K / Cmd+K / F1 for Quick Reference Manual
+  // Handle Ctrl+K / Cmd+K / F1 for Quick Docs / Reference Manual
   useEffect(() => {
     const handleGlobalKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -163,7 +222,7 @@ const MainApp: React.FC = () => {
     }
   };
 
-  // Insert code snippet at current Monaco cursor
+  // Insert code snippet into Monaco editor at cursor
   const handleInsertSnippetAtCursor = useCallback((snippet: string) => {
     setSnippetInsertCount((prev) => prev + 1);
     if (!editorRef.current) return;
@@ -329,7 +388,7 @@ const MainApp: React.FC = () => {
     return (
       <div className="w-screen h-screen flex flex-col items-center justify-center bg-base-100 gap-3">
         <span className="loading loading-ring loading-lg text-primary" />
-        <p className="text-xs text-base-content/60 font-medium">Starting secure offline assessment sandbox...</p>
+        <p className="text-xs text-base-content/60 font-medium">Starting secure assessment environment...</p>
       </div>
     );
   }
@@ -340,7 +399,14 @@ const MainApp: React.FC = () => {
 
   return (
     <div className="w-screen h-screen flex flex-col bg-base-100 overflow-hidden font-sans text-base-content antialiased">
-      {currentMode === 'candidate' ? (
+      {currentMode === 'lab' ? (
+        /* 🧪 Keystroke Dynamics Testing & Accuracy Lab */
+        <KeystrokeLabView
+          onBack={() => setCurrentMode('candidate')}
+          onOpenCalibration={() => setIsWarmupOpen(true)}
+          theme={theme}
+        />
+      ) : currentMode === 'candidate' ? (
         <>
           {/* Top Bar Navigation & Status */}
           <TopBar
@@ -358,6 +424,10 @@ const MainApp: React.FC = () => {
             onToggleTheme={() => setTheme(theme === 'cozy' ? 'ember' : 'cozy')}
             user={user}
             onLogout={logout}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={toggleFullscreen}
+            onOpenLab={() => setCurrentMode('lab')}
+            onOpenCalibration={() => setIsWarmupOpen(true)}
           />
 
           {/* Main IDE Split Workspace */}
@@ -374,9 +444,6 @@ const MainApp: React.FC = () => {
             onPaste={handlePaste}
             onInsertSnippet={handleInsertSnippetAtCursor}
             theme={theme}
-            metrics={currentMetrics}
-            baseline={baseline}
-            keystrokeCount={keystrokeCount}
             editorRef={editorRef}
           />
 
@@ -390,7 +457,7 @@ const MainApp: React.FC = () => {
             onToggleExpand={() => setIsTestPanelExpanded(!isTestPanelExpanded)}
           />
 
-          {/* Quick Reference Modal (Ctrl+K or TopBar) */}
+          {/* Quick Docs / Reference Modal (Ctrl+K or TopBar Docs button) */}
           <QuickReferenceModal
             isOpen={isReferenceOpen}
             onClose={() => setIsReferenceOpen(false)}
@@ -398,11 +465,12 @@ const MainApp: React.FC = () => {
             activeLanguage={language}
           />
 
-          {/* Baseline Warm-Up Modal */}
+          {/* Baseline Warm-Up Modal (Monaco Powered) */}
           <BaselineCalibrationModal
             isOpen={isWarmupOpen}
             onComplete={(calibrated) => {
               updateBaseline(calibrated);
+              sessionStorage.setItem('sentri_warmup_seen', 'true');
               setIsWarmupOpen(false);
             }}
             candidateId={candidateId}

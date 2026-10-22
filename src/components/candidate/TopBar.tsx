@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, BookOpen, Play, Send, Eye, Clock,
-  ChevronDown, Wifi, WifiOff, Moon, Sun, LogOut, User as UserIcon
+  ChevronDown, Wifi, WifiOff, Moon, Sun, LogOut, Maximize2, Minimize2,
+  Activity, Coffee
 } from 'lucide-react';
 import type { Problem } from '../../types';
 import type { User } from '../../context/AuthContext';
@@ -10,17 +11,21 @@ interface TopBarProps {
   problem: Problem;
   allProblems?: Problem[];
   onSelectProblem?: (p: Problem) => void;
-  onOpenReference: () => void;
+  onOpenReference?: () => void;
   onRunTests: () => void;
   onSubmitExam: () => void;
   isExecuting: boolean;
   lastAutosaveTime: number | null;
-  currentMode: 'candidate' | 'examiner';
-  onToggleMode: (mode: 'candidate' | 'examiner') => void;
+  currentMode: 'candidate' | 'examiner' | 'lab';
+  onToggleMode: (mode: 'candidate' | 'examiner' | 'lab') => void;
   theme: string;
   onToggleTheme: () => void;
   user: User | null;
   onLogout: () => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  onOpenLab?: () => void;
+  onOpenCalibration?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -38,6 +43,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   onToggleTheme,
   user,
   onLogout,
+  isFullscreen = false,
+  onToggleFullscreen,
+  onOpenLab,
+  onOpenCalibration,
 }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [remainingSeconds, setRemainingSeconds] = useState(problem.timeLimitMinutes * 60);
@@ -139,6 +148,41 @@ export const TopBar: React.FC<TopBarProps> = ({
 
       {/* ── Right: actions & User Profile ── */}
       <div className="navbar-end gap-1.5">
+        {/* Telemetry Lab Pill */}
+        {onOpenLab && (
+          <button
+            onClick={onOpenLab}
+            className="btn btn-xs btn-outline btn-primary gap-1 px-2.5 font-semibold text-xs shadow-sm"
+            title="Open Telemetry Testing & Accuracy Lab"
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>🧪 Telemetry Lab</span>
+          </button>
+        )}
+
+        {/* Fullscreen toggle button */}
+        {onToggleFullscreen && (
+          <button
+            onClick={onToggleFullscreen}
+            className={`btn btn-xs btn-ghost gap-1 px-2 border ${
+              !isFullscreen ? 'border-warning/60 text-warning bg-warning/5 animate-pulse' : 'border-base-300 text-base-content/70'
+            }`}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">Exit Fullscreen</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">Fullscreen</span>
+              </>
+            )}
+          </button>
+        )}
+
         {/* Theme toggle */}
         <button
           onClick={onToggleTheme}
@@ -148,16 +192,18 @@ export const TopBar: React.FC<TopBarProps> = ({
           {theme === 'cozy' ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
         </button>
 
-        {/* Reference Manual button */}
-        <button
-          onClick={onOpenReference}
-          className="btn btn-sm btn-ghost gap-1.5 border border-base-300 hover:border-primary/50 text-xs"
-          title="Reference Manual (Ctrl+K)"
-        >
-          <BookOpen className="w-3.5 h-3.5 text-primary" />
-          <span className="hidden sm:inline">Docs</span>
-          <kbd className="kbd kbd-xs hidden md:inline">⌘K</kbd>
-        </button>
+        {/* Docs / Reference Manual button */}
+        {onOpenReference && (
+          <button
+            onClick={onOpenReference}
+            className="btn btn-sm btn-ghost gap-1.5 border border-base-300 hover:border-primary/50 text-xs"
+            title="Reference Manual / Documentation (Ctrl+K)"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-primary" />
+            <span className="hidden sm:inline">Docs</span>
+            <kbd className="kbd kbd-xs hidden md:inline">⌘K</kbd>
+          </button>
+        )}
 
         {/* Run Tests */}
         <button
@@ -212,6 +258,14 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </span>
               </div>
             </li>
+            {onOpenCalibration && (
+              <li>
+                <button onClick={onOpenCalibration} className="text-xs flex items-center gap-2 rounded-xl">
+                  <Coffee className="w-3.5 h-3.5 text-secondary" />
+                  <span>Retake Typing Warm-Up</span>
+                </button>
+              </li>
+            )}
             <li>
               <button onClick={onLogout} className="text-error font-medium text-xs flex items-center gap-2 rounded-xl">
                 <LogOut className="w-3.5 h-3.5" />

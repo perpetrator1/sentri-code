@@ -24,10 +24,15 @@ export interface BaselineCalibration {
   candidateId: string;
   meanFlightTime: number; // in ms
   varianceFlightTime: number;
+  stdDevFlightTime?: number;
   meanDwellTime: number; // in ms
   naturalBurstVelocity: number; // chars per minute
+  baselineEntropy?: number; // individual Shannon cadence entropy
+  naturalPauseThresholdMs?: number; // personalized glance-pause boundary (e.g. 3.5 * meanFlight)
+  naturalBackspaceRate?: number; // individual natural typo correction rate
   recordedAt: number;
   sampleCount: number;
+  lastAdaptedAt?: number;
 }
 
 export interface SlidingWindowMetrics {
@@ -144,6 +149,9 @@ export interface TelemetrySummary {
   referenceQueriesCount: number;
   snippetsInsertedCount: number;
   anomaliesDetected: number;
+  speedDivergenceRatio?: number;
+  varianceDivergenceRatio?: number;
+  cadenceEntropy?: number;
 }
 
 export interface ExaminerVerdict {

@@ -21,6 +21,10 @@ export const AuthView: React.FC = () => {
     setLoading(true);
 
     try {
+      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+
       if (tab === 'login') {
         const res = await login(email, password);
         if (!res.success) {
@@ -42,6 +46,9 @@ export const AuthView: React.FC = () => {
   const handleQuickLogin = async (selectedRole: UserRole) => {
     setError(null);
     setLoading(true);
+    if (selectedRole === 'candidate' && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
     try {
       await quickLoginAs(selectedRole);
     } catch (err: any) {
