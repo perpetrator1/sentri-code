@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import { CheckCircle2, WifiOff, Wifi, Copy, Hash, ArrowRight, Check } from 'lucide-react';
+import { CheckCircle2, WifiOff, Wifi, Copy, Hash, Check } from 'lucide-react';
 import type { SubmissionPayload } from '../../types';
 
 interface SubmissionModalProps {
@@ -8,7 +8,6 @@ interface SubmissionModalProps {
   onClose: () => void;
   submission: SubmissionPayload | null;
   isOfflineQueued: boolean;
-  onReviewAudit?: () => void;
 }
 
 export const SubmissionModal: React.FC<SubmissionModalProps> = ({
@@ -16,7 +15,6 @@ export const SubmissionModal: React.FC<SubmissionModalProps> = ({
   onClose,
   submission,
   isOfflineQueued,
-  onReviewAudit,
 }) => {
   const [copiedHash, setCopiedHash] = useState(false);
 
@@ -121,18 +119,13 @@ export const SubmissionModal: React.FC<SubmissionModalProps> = ({
           </details>
 
           {/* Actions */}
-          <div className="flex items-center justify-between pt-1">
-            <button onClick={onClose} className="btn btn-ghost btn-sm text-sm">
-              Close
+          <div className="flex items-center justify-end pt-1">
+            <button
+              onClick={onClose}
+              className="btn btn-primary btn-sm px-6 font-semibold"
+            >
+              Done
             </button>
-            {onReviewAudit && (
-              <button
-                onClick={() => { onClose(); onReviewAudit(); }}
-                className="btn btn-secondary btn-sm gap-1.5 text-white"
-              >
-                Examiner view <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
         </div>
       </div>

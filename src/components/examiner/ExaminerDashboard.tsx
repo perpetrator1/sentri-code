@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   User,
   ArrowLeft,
+  LogOut,
 } from 'lucide-react';
 import { ForensicsWorkbench } from './ForensicsWorkbench';
 
@@ -42,7 +43,10 @@ export const ExaminerDashboard: React.FC<ExaminerDashboardProps> = ({
 
       if (navigator.onLine) {
         try {
-          const res = await fetch('/api/examiner/submissions');
+          const token = typeof window !== 'undefined' ? localStorage.getItem('sentri_auth_token') : null;
+          const res = await fetch('/api/examiner/submissions', {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
           if (res.ok) {
             const data = await res.json();
             if (data.submissions && data.submissions.length > 0) {
@@ -111,6 +115,7 @@ export const ExaminerDashboard: React.FC<ExaminerDashboardProps> = ({
         <ForensicsWorkbench
           submission={activeCandidate}
           onBack={handleBack}
+          user={user}
         />
       </div>
     );
@@ -119,38 +124,66 @@ export const ExaminerDashboard: React.FC<ExaminerDashboardProps> = ({
   return (
     <div className="h-full flex flex-col bg-base-100 overflow-hidden">
       {/* Navbar */}
-      <div className="navbar bg-base-200 border-b border-base-300 px-4 min-h-14 shrink-0">
+      <header className="navbar bg-base-200 border-b border-base-300 px-4 min-h-14 shrink-0 select-none">
         <div className="navbar-start gap-3">
-          <button
-            onClick={onBackToAssessment}
-            className="btn btn-sm btn-ghost gap-1.5"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="text-xs">Back to IDE</span>
-          </button>
-          <div className="divider divider-horizontal mx-0" />
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-5 h-5 text-secondary" />
-            <span className="font-bold text-sm tracking-tight">
-              Examiner Review Dashboard
-            </span>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-secondary/15 flex items-center justify-center">
+              <ShieldAlert className="w-4.5 h-4.5 text-secondary" strokeWidth={2.2} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-sm tracking-tight text-base-content">
+                  Sentri Code
+                </span>
+                <span className="badge badge-secondary badge-xs font-semibold uppercase tracking-wider">
+                  Examiner Portal
+                </span>
+              </div>
+              <p className="text-[11px] text-base-content/50">Forensics & Integrity Review</p>
+            </div>
           </div>
         </div>
-        <div className="navbar-end gap-2">
-          <div className="badge badge-neutral text-xs">
-            {submissions.length} submissions
+
+        <div className="navbar-end gap-2.5">
+          <div className="badge badge-neutral text-xs font-medium px-2.5 py-1">
+            {submissions.length} submission{submissions.length === 1 ? '' : 's'}
           </div>
+
+          {user && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-base-100 border border-base-300/80">
+              <div className="w-6 h-6 rounded-lg bg-secondary/15 text-secondary font-bold text-[11px] flex items-center justify-center">
+                {user.name ? user.name.slice(0, 2).toUpperCase() : 'EX'}
+              </div>
+              <div className="hidden sm:block text-left">
+                <div className="text-xs font-semibold leading-tight">{user.name}</div>
+                <div className="text-[10px] text-base-content/50 leading-tight capitalize">{user.role}</div>
+              </div>
+            </div>
+          )}
+
+          {user?.role === 'admin' && onBackToAssessment && (
+            <button
+              onClick={onBackToAssessment}
+              className="btn btn-xs btn-ghost border border-base-300 text-xs gap-1"
+              title="Preview candidate workspace (Admin only)"
+            >
+              <ArrowLeft className="w-3 h-3" />
+              <span>Candidate IDE Preview</span>
+            </button>
+          )}
+
           {onLogout && (
             <button
               onClick={onLogout}
-              className="btn btn-xs btn-outline btn-error gap-1 text-xs"
+              className="btn btn-xs btn-outline btn-error gap-1.5 text-xs font-medium ml-1"
               title="Sign Out"
             >
-              Sign Out
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out</span>
             </button>
           )}
         </div>
-      </div>
+      </header>
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-5">

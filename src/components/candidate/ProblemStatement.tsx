@@ -14,16 +14,23 @@ export const ProblemStatement: React.FC<ProblemStatementProps> = ({ problem }) =
       <div className="space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <h2 className="text-lg font-bold tracking-tight">{problem.title}</h2>
-          <span className={`badge badge-sm ${
-            problem.difficulty === 'Easy' ? 'badge-success' :
-            problem.difficulty === 'Medium' ? 'badge-warning' : 'badge-error'
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide border ${
+            problem.difficulty === 'Easy' ? 'bg-success/10 text-success border-success/30' :
+            problem.difficulty === 'Medium' ? 'bg-warning/10 text-warning border-warning/30' :
+            'bg-error/10 text-error border-error/30'
           }`}>
             {problem.difficulty}
           </span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           {problem.tags.map(tag => (
-            <span key={tag} className="badge badge-xs badge-ghost border border-base-300">{tag}</span>
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-base-200 text-base-content/75 border border-base-300/80 hover:border-primary/40 transition-colors shadow-2xs"
+            >
+              <span className="text-primary/70 font-mono text-[10px] select-none">#</span>
+              {tag}
+            </span>
           ))}
         </div>
       </div>

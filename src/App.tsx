@@ -25,14 +25,11 @@ import { SubmissionModal } from './components/candidate/SubmissionModal';
 // Examiner Review Dashboard
 import { ExaminerDashboard } from './components/examiner/ExaminerDashboard';
 
-// Keystroke Accuracy Lab
-import { KeystrokeLabView } from './components/lab/KeystrokeLabView';
-
 const MainApp: React.FC = () => {
   const { user, logout, isAuthenticated, isLoading } = useAuth();
 
-  // Navigation Mode: Candidate Assessment vs Examiner Forensics vs Telemetry Lab
-  const [currentMode, setCurrentMode] = useState<'candidate' | 'examiner' | 'lab'>('candidate');
+  // Navigation Mode: Candidate Assessment vs Examiner Forensics
+  const [currentMode, setCurrentMode] = useState<'candidate' | 'examiner'>('candidate');
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
 
   // Active Problem & Candidate
@@ -94,6 +91,14 @@ const MainApp: React.FC = () => {
     }
   }, [user?.role]);
 
+  // Strict role isolation: candidates are locked to candidate mode; examiners are locked to examiner mode
+  const effectiveMode: 'candidate' | 'examiner' =
+    user?.role === 'candidate'
+      ? 'candidate'
+      : user?.role === 'examiner'
+      ? 'examiner'
+      : currentMode;
+
   // Fullscreen event listener and automatic entry for candidates
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -103,7 +108,7 @@ const MainApp: React.FC = () => {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     // Auto-enter fullscreen in candidate assessment mode
-    if (currentMode === 'candidate') {
+    if (effectiveMode === 'candidate') {
       enterFullscreen();
 
       // Many browsers require a user gesture; trigger on candidate's first interaction
@@ -126,7 +131,7 @@ const MainApp: React.FC = () => {
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [currentMode, enterFullscreen]);
+  }, [effectiveMode, enterFullscreen]);
 
   // Keystroke dynamics & inference hook
   const {
@@ -399,14 +404,7 @@ const MainApp: React.FC = () => {
 
   return (
     <div className="w-screen h-screen flex flex-col bg-base-100 overflow-hidden font-sans text-base-content antialiased">
-      {currentMode === 'lab' ? (
-        /* 🧪 Keystroke Dynamics Testing & Accuracy Lab */
-        <KeystrokeLabView
-          onBack={() => setCurrentMode('candidate')}
-          onOpenCalibration={() => setIsWarmupOpen(true)}
-          theme={theme}
-        />
-      ) : currentMode === 'candidate' ? (
+      {effectiveMode === 'candidate' ? (
         <>
           {/* Top Bar Navigation & Status */}
           <TopBar
@@ -418,7 +416,7 @@ const MainApp: React.FC = () => {
             onSubmitExam={handleSubmitExam}
             isExecuting={isExecuting}
             lastAutosaveTime={lastAutosaveTime}
-            currentMode={currentMode}
+            currentMode={effectiveMode}
             onToggleMode={setCurrentMode}
             theme={theme}
             onToggleTheme={() => setTheme(theme === 'cozy' ? 'ember' : 'cozy')}
@@ -426,7 +424,6 @@ const MainApp: React.FC = () => {
             onLogout={logout}
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
-            onOpenLab={() => setCurrentMode('lab')}
             onOpenCalibration={() => setIsWarmupOpen(true)}
           />
 
@@ -482,10 +479,6 @@ const MainApp: React.FC = () => {
             onClose={() => setIsSubmitModalOpen(false)}
             submission={submittedPayload}
             isOfflineQueued={isOfflineQueued}
-            onReviewAudit={() => {
-              setSelectedAuditId(submittedPayload?.id || null);
-              setCurrentMode('examiner');
-            }}
           />
         </>
       ) : (

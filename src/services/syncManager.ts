@@ -58,9 +58,13 @@ class SyncManager {
 
       console.log(`[SyncManager] Found ${pendingItems.length} unsynced items in IndexedDB outbox. Syncing to server...`);
 
+      const token = typeof window !== 'undefined' ? localStorage.getItem('sentri_auth_token') : null;
       const response = await fetch('/api/submissions/sync-outbox', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ items: pendingItems }),
       });
 

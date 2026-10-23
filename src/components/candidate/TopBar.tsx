@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, BookOpen, Play, Send, Eye, Clock,
   ChevronDown, Wifi, WifiOff, Moon, Sun, LogOut, Maximize2, Minimize2,
-  Activity, Coffee
+  Coffee
 } from 'lucide-react';
 import type { Problem } from '../../types';
 import type { User } from '../../context/AuthContext';
@@ -16,15 +16,14 @@ interface TopBarProps {
   onSubmitExam: () => void;
   isExecuting: boolean;
   lastAutosaveTime: number | null;
-  currentMode: 'candidate' | 'examiner' | 'lab';
-  onToggleMode: (mode: 'candidate' | 'examiner' | 'lab') => void;
+  currentMode: 'candidate' | 'examiner';
+  onToggleMode: (mode: 'candidate' | 'examiner') => void;
   theme: string;
   onToggleTheme: () => void;
   user: User | null;
   onLogout: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
-  onOpenLab?: () => void;
   onOpenCalibration?: () => void;
 }
 
@@ -45,7 +44,6 @@ export const TopBar: React.FC<TopBarProps> = ({
   onLogout,
   isFullscreen = false,
   onToggleFullscreen,
-  onOpenLab,
   onOpenCalibration,
 }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -148,18 +146,6 @@ export const TopBar: React.FC<TopBarProps> = ({
 
       {/* ── Right: actions & User Profile ── */}
       <div className="navbar-end gap-1.5">
-        {/* Telemetry Lab Pill */}
-        {onOpenLab && (
-          <button
-            onClick={onOpenLab}
-            className="btn btn-xs btn-outline btn-primary gap-1 px-2.5 font-semibold text-xs shadow-sm"
-            title="Open Telemetry Testing & Accuracy Lab"
-          >
-            <Activity className="w-3.5 h-3.5" />
-            <span>🧪 Telemetry Lab</span>
-          </button>
-        )}
-
         {/* Fullscreen toggle button */}
         {onToggleFullscreen && (
           <button
@@ -226,8 +212,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span>Submit</span>
         </button>
 
-        {/* Examiner mode toggle (only visible to staff) */}
-        {isStaff && (
+        {/* Examiner mode toggle (only visible to admin for previewing triage) */}
+        {user?.role === 'admin' && (
           <button
             onClick={() => onToggleMode(currentMode === 'candidate' ? 'examiner' : 'candidate')}
             className={`btn btn-sm ${currentMode === 'examiner' ? 'btn-secondary' : 'btn-ghost border border-base-300 text-base-content/70'} text-xs gap-1`}

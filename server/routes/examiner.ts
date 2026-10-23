@@ -4,8 +4,8 @@ import { authMiddleware, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-// GET all submissions for Examiner Triage View
-router.get('/submissions', (req, res) => {
+// GET all submissions for Examiner Triage View (Protected: Examiner & Admin only)
+router.get('/submissions', authMiddleware, requireRole('examiner', 'admin'), (req, res) => {
   const query = `
     SELECT 
       s.id,
@@ -67,8 +67,8 @@ router.get('/submissions', (req, res) => {
   res.json({ submissions });
 });
 
-// Update Examiner Verdict
-router.post('/verdict', (req, res) => {
+// Update Examiner Verdict (Protected: Examiner & Admin only)
+router.post('/verdict', authMiddleware, requireRole('examiner', 'admin'), (req, res) => {
   const { submissionId, status, notes = '', reviewedBy = 'Prof. Henderson' } = req.body;
 
   if (!submissionId || !status) {

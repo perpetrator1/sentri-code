@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { db } from '../db';
+import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
 
@@ -164,8 +165,8 @@ router.post('/sync-outbox', (req, res) => {
   });
 });
 
-// Get single submission
-router.get('/:id', (req, res) => {
+// Get single submission (Protected: Candidate can only access their own; Examiner/Admin can access any)
+router.get('/:id', authMiddleware, (req, res) => {
   const stmt = db.prepare(`
     SELECT s.*, v.status as verdict_status, v.notes as verdict_notes, v.reviewed_by, v.reviewed_at
     FROM submissions s
@@ -176,6 +177,11 @@ router.get('/:id', (req, res) => {
 
   if (!row) {
     return res.status(404).json({ error: 'Submission not found' });
+  }
+
+  // Candidate role isolation check
+  if (req.user?.role === 'candidate' && req.user.id !== row.candidate_id) {
+    return res.status(403).json({ error: 'Forbidden: Candidates can only view their own submissions.' });
   }
 
   res.json({

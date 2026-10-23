@@ -10,9 +10,10 @@ import { db, seedReplaySnapshots } from '../../db';
 interface ForensicsWorkbenchProps {
   submission: SubmissionPayload;
   onBack: () => void;
+  user?: any;
 }
 
-export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submission, onBack }) => {
+export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submission, onBack, user }) => {
   const [snapshots, setSnapshots] = useState<CodeSnapshot[]>([]);
   const [idx, setIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -61,22 +62,27 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
 
   const handleSave = async (status: 'verified' | 'flagged_viva' | 'dismissed') => {
     setVerdictStatus(status);
+    const reviewerName = user?.name || 'Prof. Henderson';
     const updatedPayload = {
       ...submission,
-      examinerVerdict: { status, professorNotes: notes, reviewedBy: 'Prof. Henderson', reviewedAt: Date.now() },
+      examinerVerdict: { status, professorNotes: notes, reviewedBy: reviewerName, reviewedAt: Date.now() },
     };
     await db.submissions.put(updatedPayload);
 
     if (navigator.onLine) {
       try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('sentri_auth_token') : null;
         await fetch('/api/examiner/verdict', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({
             submissionId: submission.id,
             status,
             notes,
-            reviewedBy: 'Prof. Henderson',
+            reviewedBy: reviewerName,
           }),
         });
       } catch (err) {
