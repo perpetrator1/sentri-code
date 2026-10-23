@@ -96,13 +96,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (email.toLowerCase().includes('candidate')) {
         const mockUser: User = { id: 'cand-offline-77', email, name: 'Alex Rivera (Offline)', role: 'candidate' };
         setUser(mockUser);
-        setToken('offline-token');
+        setToken('offline-candidate-token');
+        localStorage.setItem(TOKEN_KEY, 'offline-candidate-token');
         localStorage.setItem(USER_KEY, JSON.stringify(mockUser));
         return { success: true };
       } else if (email.toLowerCase().includes('professor') || email.toLowerCase().includes('examiner')) {
         const mockUser: User = { id: 'exam-offline-1', email, name: 'Prof. Henderson (Offline)', role: 'examiner' };
         setUser(mockUser);
-        setToken('offline-token');
+        setToken('offline-examiner-token');
+        localStorage.setItem(TOKEN_KEY, 'offline-examiner-token');
         localStorage.setItem(USER_KEY, JSON.stringify(mockUser));
         return { success: true };
       }

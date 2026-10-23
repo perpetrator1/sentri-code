@@ -354,6 +354,13 @@ const MainApp: React.FC = () => {
     // Always store in IndexedDB
     await db.submissions.put(payload);
 
+    // Broadcast live submission event across browser tabs/windows
+    try {
+      const bc = new BroadcastChannel('sentri_live_submissions');
+      bc.postMessage({ type: 'NEW_SUBMISSION', submission: payload });
+      bc.close();
+    } catch {}
+
     // If online, post to server immediately; if offline, enqueue in outbox
     let syncedImmediately = false;
     if (navigator.onLine) {

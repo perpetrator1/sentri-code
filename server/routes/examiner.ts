@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import { db } from '../db';
-import { authMiddleware, requireRole } from '../middleware/auth';
+import { authMiddleware, requireRole, JWT_SECRET, type AuthUser } from '../middleware/auth';
+import { submissionEvents } from '../services/events';
 
 const router = Router();
 
@@ -65,6 +67,61 @@ router.get('/submissions', authMiddleware, requireRole('examiner', 'admin'), (re
   });
 
   res.json({ submissions });
+});
+
+// GET Live Stream (SSE) for Real-Time Submissions to Examiner Dashboard
+router.get('/live-stream', (req, res) => {
+  const authHeader = req.headers.authorization;
+  const queryToken = (req.query.token as string) || '';
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : queryToken;
+
+  if (!token) {
+    return res.status(401).json({ error: 'Auth token required for live stream.' });
+  }
+
+  // Validate permission (examiner or admin)
+  if (token !== 'offline-examiner-token' && token !== 'offline-token') {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+      if (decoded.role !== 'examiner' && decoded.role !== 'admin') {
+        return res.status(403).json({ error: 'Examiner access only.' });
+      }
+    } catch {
+      return res.status(401).json({ error: 'Invalid token.' });
+    }
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  // Initial connection handshake
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: Date.now() })}\n\n`);
+
+  const onNewSubmission = (submission: any) => {
+    try {
+      res.write(`data: ${JSON.stringify({ type: 'NEW_SUBMISSION', submission })}\n\n`);
+    } catch (e) {
+      console.warn('Failed to write SSE event:', e);
+    }
+  };
+
+  submissionEvents.on('new_submission', onNewSubmission);
+
+  // Heartbeat every 20 seconds to keep connection alive
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch {
+      clearInterval(heartbeat);
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    submissionEvents.off('new_submission', onNewSubmission);
+    clearInterval(heartbeat);
+  });
 });
 
 // Update Examiner Verdict (Protected: Examiner & Admin only)

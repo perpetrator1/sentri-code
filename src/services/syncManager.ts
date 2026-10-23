@@ -86,6 +86,12 @@ class SyncManager {
       }
 
       if (syncedIds.length > 0) {
+        try {
+          const bc = new BroadcastChannel('sentri_live_submissions');
+          bc.postMessage({ type: 'SUBMISSIONS_SYNCED', count: syncedIds.length });
+          bc.close();
+        } catch {}
+
         this.notify({
           id: `synced-${Date.now()}`,
           type: 'success',

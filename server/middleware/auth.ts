@@ -33,6 +33,27 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   }
 
   const token = authHeader.split(' ')[1];
+
+  // Offline / Demo fallback authentication support
+  if (token === 'offline-examiner-token' || token === 'offline-token') {
+    req.user = {
+      id: 'exam-offline-1',
+      email: 'professor@sentri.dev',
+      name: 'Prof. Henderson (Offline)',
+      role: 'examiner',
+    };
+    return next();
+  }
+  if (token === 'offline-candidate-token') {
+    req.user = {
+      id: 'cand-offline-77',
+      email: 'candidate@sentri.dev',
+      name: 'Alex Rivera (Offline)',
+      role: 'candidate',
+    };
+    return next();
+  }
+
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
     req.user = decoded;

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { db } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { submissionEvents } from '../services/events';
 
 const router = Router();
 
@@ -88,6 +89,32 @@ router.post('/', (req, res) => {
       );
     }
 
+    // Notify live examiner listeners via SSE
+    const payloadForExaminer = {
+      id: submissionId,
+      candidateId,
+      candidateName: candidateName || 'Candidate',
+      problemId,
+      code,
+      language: language || 'javascript',
+      score: score ?? 100,
+      testResults: testResults || [],
+      telemetrySummary: telemetrySummary || {},
+      anomalyTimeline: anomalyTimeline || [],
+      baseline: baseline || null,
+      integrityHash: finalHash,
+      status: 'synced',
+      submittedAt,
+      durationSeconds: 1200,
+      examinerVerdict: {
+        status: 'pending',
+        professorNotes: '',
+        reviewedBy: 'Unassigned',
+        reviewedAt: submittedAt,
+      },
+    };
+    submissionEvents.emit('new_submission', payloadForExaminer);
+
     return res.status(201).json({
       success: true,
       submissionId,
@@ -153,6 +180,16 @@ router.post('/sync-outbox', (req, res) => {
       );
 
       syncedIds.push(payload.id);
+      submissionEvents.emit('new_submission', {
+        ...payload,
+        status: 'synced',
+        examinerVerdict: {
+          status: 'pending',
+          professorNotes: '',
+          reviewedBy: 'Unassigned',
+          reviewedAt: Date.now(),
+        },
+      });
     } catch (e) {
       console.error('Failed to sync item:', payload.id, e);
     }
