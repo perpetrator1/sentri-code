@@ -20,7 +20,7 @@ import {
   Activity,
 } from 'lucide-react';
 import type { SubmissionPayload, CodeSnapshot } from '../../types';
-import { db, seedReplaySnapshots } from '../../db';
+import { db, seedReplaySnapshots, removeDuplicateReplaySequence } from '../../db';
 
 interface ForensicsWorkbenchProps {
   submission: SubmissionPayload;
@@ -42,15 +42,50 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
   useEffect(() => {
     let cancelled = false;
     async function init() {
-      await seedReplaySnapshots(submission.id, submission.code);
-      const list = await db.snapshots
-        .where('trigger')
-        .equals(`replay-${submission.id}`)
-        .toArray();
+      let rawSnaps: CodeSnapshot[] = [];
+
+      // 1. Direct from submission object (candidate's real recorded keystroke snapshots)
+      if (submission.snapshots && submission.snapshots.length > 0) {
+        rawSnaps = submission.snapshots;
+      } else {
+        // 2. Query IndexedDB for snapshots stored under this submission's replay key
+        const stored = await db.snapshots
+          .where('trigger')
+          .equals(`replay-${submission.id}`)
+          .toArray();
+
+        if (stored.length > 0) {
+          rawSnaps = stored;
+        } else {
+          // 3. Fallback only for legacy mock data (sub-org-01, sub-sus-02, etc.)
+          await seedReplaySnapshots(submission.id, submission.code);
+          rawSnaps = await db.snapshots
+            .where('trigger')
+            .equals(`replay-${submission.id}`)
+            .toArray();
+        }
+      }
+
       if (!cancelled) {
-        if (list.length > 0) {
-          setSnapshots(list);
-          setIdx(list.length - 1);
+        // Strict deduplication: remove consecutive duplicates AND any repeated sequence cycles
+        const cleanList = removeDuplicateReplaySequence(rawSnaps);
+        if (cleanList.length > 0) {
+          setSnapshots(cleanList);
+          setIdx(cleanList.length - 1);
+
+          // If corrupted duplicate cycles existed in DB from legacy runs, heal them permanently
+          if (cleanList.length !== rawSnaps.length && (!submission.snapshots || submission.snapshots.length === 0)) {
+            db.snapshots
+              .where('trigger')
+              .equals(`replay-${submission.id}`)
+              .delete()
+              .then(() => {
+                db.snapshots.bulkAdd(
+                  cleanList.map((s) => ({ ...s, trigger: `replay-${submission.id}` }))
+                );
+              })
+              .catch(() => {});
+          }
         } else {
           setSnapshots([
             {
@@ -70,7 +105,7 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
     return () => {
       cancelled = true;
     };
-  }, [submission.id]);
+  }, [submission.id, submission.snapshots]);
 
   // Automated playback timer
   useEffect(() => {
@@ -450,7 +485,13 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                       : 'bg-success/15 text-success border-success/30'
                   }`}
                 >
-                  {isCurrentAnomaly ? '⚠️ Anomaly' : currentStatus?.type === 'burst' ? '⚡ Burst' : '✓ Authentic'}
+                  {isCurrentAnomaly
+                    ? currentStatus?.reason?.toLowerCase().includes('phone')
+                      ? '📱 Phone Sight-Typing'
+                      : '⚠️ Anomaly'
+                    : currentStatus?.type === 'burst'
+                    ? '⚡ Burst'
+                    : '✓ Authentic'}
                 </div>
               </div>
             </div>
@@ -705,6 +746,9 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                         <span className="font-bold uppercase tracking-wide flex items-center gap-1">
                           {item.severity === 'high' && <span className="w-1.5 h-1.5 rounded-full bg-error" />}
                           {item.severity}
+                          {item.anomalyReason.toLowerCase().includes('phone') && (
+                            <span className="badge badge-xs badge-error text-white font-mono font-bold ml-1">📱 Phone Distance</span>
+                          )}
                         </span>
                         <span className="flex items-center gap-1">
                           <span>{Math.round(item.confidenceScore * 100)}% conf.</span>

@@ -93,6 +93,11 @@ export async function seedInitialMockDataIfEmpty() {
       naturalBurstVelocity: 260,
       recordedAt: now - 3600000 * 2 - 1500000,
       sampleCount: 85,
+      onScreenGlancePauseMeanMs: 890,
+      phoneDistanceOffsetMs: 1800,
+      phoneDistanceGlanceMinMs: 1890,
+      phoneDistanceGlanceMaxMs: 7500,
+      isPhoneDistanceCalibrated: true,
     },
     anomalyTimeline: [
       {
@@ -174,12 +179,19 @@ export async function seedInitialMockDataIfEmpty() {
       naturalBurstVelocity: 240,
       recordedAt: now - 3600000 * 1 - 400000,
       sampleCount: 70,
+      onScreenGlancePauseMeanMs: 820,
+      phoneDistanceOffsetMs: 1800,
+      phoneDistanceGlanceMinMs: 1820,
+      phoneDistanceGlanceMaxMs: 7500,
+      isPhoneDistanceCalibrated: true,
+      transcriptionMeanFlightTime: 110,
+      transcriptionVarianceFlightTime: 650,
     },
     anomalyTimeline: [
       {
         timestamp: now - 3600000 * 1 + 30000,
         confidenceScore: 0.48,
-        anomalyReason: 'Metronomic transcription detected: abnormally low flight variance across 80 chars',
+        anomalyReason: 'Phone / off-screen transcription cadence: periodic 2.8s distant-glance pauses with flat memory bursts',
         severity: 'high',
       },
       {
@@ -294,32 +306,100 @@ export async function seedInitialMockDataIfEmpty() {
   await db.submissions.bulkPut([organicSubmission, suspiciousSubmission, mixedSubmission]);
 }
 
-// Generate forensic snapshots for replaying a submission
-export async function seedReplaySnapshots(submissionId: string, finalCode: string) {
-  const existing = await db.snapshots.where('trigger').equals(`replay-${submissionId}`).count();
-  if (existing > 0) return;
+// Utility to eliminate consecutive duplicates and repeated cycle blocks (e.g., if history was accidentally duplicated)
+export function removeDuplicateReplaySequence(list: CodeSnapshot[]): CodeSnapshot[] {
+  if (!list || list.length <= 1) return list || [];
 
-  const lines = finalCode.split('\n');
-  const totalSteps = 16;
-  const snapshots: CodeSnapshot[] = [];
-  const baseTime = Date.now() - 1500000;
+  // Pass 1: remove identical consecutive frames
+  let cleaned = list.filter((snap, i, arr) => i === 0 || snap.code !== arr[i - 1].code);
 
-  for (let i = 1; i <= totalSteps; i++) {
-    const lineSlice = Math.ceil((lines.length * i) / totalSteps);
-    let codePartial = lines.slice(0, lineSlice).join('\n');
-    if (i < totalSteps && i % 4 === 0) {
-      // Simulate typical editing backspace or refactoring
-      codePartial += '\n  // adjusting logic...';
+  // Pass 2: detect and remove repeated cyclic blocks (e.g. 2x, 3x, or 4x duplicate cycles)
+  for (let parts = 2; parts <= 4; parts++) {
+    if (cleaned.length >= parts && cleaned.length % parts === 0) {
+      const chunkSize = cleaned.length / parts;
+      const firstChunk = cleaned.slice(0, chunkSize);
+      let allMatch = true;
+      for (let p = 1; p < parts; p++) {
+        const chunk = cleaned.slice(p * chunkSize, (p + 1) * chunkSize);
+        if (!chunk.every((snap, i) => snap.code === firstChunk[i].code)) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch) {
+        cleaned = firstChunk;
+        break;
+      }
     }
-    snapshots.push({
-      timestamp: baseTime + i * 35000,
-      code: codePartial,
-      language: 'javascript',
-      trigger: `replay-${submissionId}` as any,
-      charCount: codePartial.length,
-      integrityScoreAtMoment: Math.min(1.0, 0.85 + (Math.sin(i) * 0.1)),
-    });
   }
 
-  await db.snapshots.bulkAdd(snapshots);
+  return cleaned;
+}
+
+// Concurrency mutex lock to prevent concurrent double-seeding from React StrictMode / multi-mounts
+const seedingLocks = new Map<string, Promise<void>>();
+
+// Generate forensic snapshots for replaying a submission
+export async function seedReplaySnapshots(submissionId: string, finalCode: string) {
+  if (seedingLocks.has(submissionId)) {
+    return seedingLocks.get(submissionId);
+  }
+
+  const seedingPromise = (async () => {
+    const existingList = await db.snapshots
+      .where('trigger')
+      .equals(`replay-${submissionId}`)
+      .toArray();
+
+    const cleaned = removeDuplicateReplaySequence(existingList);
+    // If clean snapshots already exist without duplicate sequence repetition, keep them
+    if (existingList.length > 0 && cleaned.length === existingList.length) {
+      return;
+    }
+
+    // Always clear existing corrupted/duplicated snapshots before generating new ones
+    await db.snapshots.where('trigger').equals(`replay-${submissionId}`).delete();
+
+    const lines = finalCode.split('\n');
+    const snapshots: CodeSnapshot[] = [];
+    const baseTime = Date.now() - 1500000;
+    const currentLines: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      currentLines.push(lines[i]);
+      const code = currentLines.join('\n');
+      snapshots.push({
+        timestamp: baseTime + snapshots.length * 30000,
+        code,
+        language: 'javascript',
+        trigger: `replay-${submissionId}` as any,
+        charCount: code.length,
+        integrityScoreAtMoment: Math.min(1.0, 0.85 + Math.sin(snapshots.length) * 0.1),
+      });
+    }
+
+    // Ensure finalCode is explicitly the final snapshot
+    if (snapshots.length === 0 || snapshots[snapshots.length - 1].code !== finalCode) {
+      snapshots.push({
+        timestamp: baseTime + snapshots.length * 30000,
+        code: finalCode,
+        language: 'javascript',
+        trigger: `replay-${submissionId}` as any,
+        charCount: finalCode.length,
+        integrityScoreAtMoment: 0.95,
+      });
+    }
+
+    // Strict deduplication pass: guarantee no two consecutive frames have identical code or cyclic loops
+    const uniqueSnapshots = removeDuplicateReplaySequence(snapshots);
+
+    await db.snapshots.bulkAdd(uniqueSnapshots);
+  })();
+
+  seedingLocks.set(submissionId, seedingPromise);
+  try {
+    await seedingPromise;
+  } finally {
+    seedingLocks.delete(submissionId);
+  }
 }

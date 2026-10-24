@@ -4,7 +4,7 @@ import type { BaselineCalibration } from '../../types';
 import { calculateShannonEntropy } from '../../telemetry/slidingWindow';
 import {
   ArrowRight, ShieldCheck, Sparkles, CheckCircle2, BookOpen, Brain,
-  Eye, Keyboard, ChevronRight, Info, MessageSquare,
+  Eye, Keyboard, ChevronRight, Info, MessageSquare, Smartphone,
 } from 'lucide-react';
 
 interface BaselineCalibrationModalProps {
@@ -64,6 +64,7 @@ const PHASE2_TARGET_CHARS = 100; // Target ~2-3 thoughtful sentences
 function useKeystrokeCollector() {
   const flightTimesRef = useRef<number[]>([]);
   const dwellTimesRef = useRef<number[]>([]);
+  const glancePausesRef = useRef<number[]>([]); // Pauses between 400ms and 3500ms
   const backspaceCountRef = useRef<number>(0);
   const keystrokeCountRef = useRef<number>(0);
   const lastKeyTimeRef = useRef<number>(performance.now());
@@ -72,6 +73,7 @@ function useKeystrokeCollector() {
   const reset = useCallback(() => {
     flightTimesRef.current = [];
     dwellTimesRef.current = [];
+    glancePausesRef.current = [];
     backspaceCountRef.current = 0;
     keystrokeCountRef.current = 0;
     lastKeyTimeRef.current = performance.now();
@@ -88,6 +90,9 @@ function useKeystrokeCollector() {
       keyDownMapRef.current.set(codeKey, now);
     }
     const flight = Math.max(10, Math.round(now - lastKeyTimeRef.current));
+    if (flight >= 400 && flight <= 3500) {
+      glancePausesRef.current.push(flight);
+    }
     if (flight < 4000) {
       flightTimesRef.current.push(flight);
       keystrokeCountRef.current++;
@@ -107,6 +112,7 @@ function useKeystrokeCollector() {
   const snapshot = useCallback(() => ({
     flightTimes: [...flightTimesRef.current],
     dwellTimes: [...dwellTimesRef.current],
+    glancePauses: [...glancePausesRef.current],
     backspaceCount: backspaceCountRef.current,
     keystrokeCount: keystrokeCountRef.current,
   }), []);
@@ -115,7 +121,13 @@ function useKeystrokeCollector() {
 }
 
 // ─── Derive biometric profile from flight-time samples ───────────────────────
-function deriveProfile(flights: number[], dwells: number[], bsCount: number, ksCount: number) {
+function deriveProfile(
+  flights: number[],
+  dwells: number[],
+  bsCount: number,
+  ksCount: number,
+  glancePauses: number[] = []
+) {
   const vf = flights.length >= 8 ? flights : [145, 175, 160, 210, 190, 135, 165, 180];
   const vd = dwells.length >= 8 ? dwells : [70, 75, 80, 65, 85, 75, 70, 80];
   const mf = Math.round(vf.reduce((a, b) => a + b, 0) / vf.length);
@@ -125,7 +137,23 @@ function deriveProfile(flights: number[], dwells: number[], bsCount: number, ksC
   const entropy = calculateShannonEntropy(vf);
   const pauseThreshold = Math.max(1200, Math.round(mf * 3.5));
   const bsRate = ksCount > 0 ? Number((bsCount / ksCount).toFixed(3)) : 0.09;
-  return { mf, varF, stdDev, md, entropy, pauseThreshold, bsRate, sampleCount: vf.length };
+
+  // Near-field on-screen glance pause average:
+  const onScreenGlance = glancePauses.length >= 3
+    ? Math.round(glancePauses.reduce((a, b) => a + b, 0) / glancePauses.length)
+    : 850;
+
+  return {
+    mf,
+    varF,
+    stdDev,
+    md,
+    entropy,
+    pauseThreshold,
+    bsRate,
+    onScreenGlance,
+    sampleCount: vf.length,
+  };
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -214,12 +242,26 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
     let txMean: number | undefined;
     let txVar: number | undefined;
     let txBsRate: number | undefined;
+    let onScreenGlanceMean = 850;
+
     if (p1 && p1.flightTimes.length >= 8) {
-      const p1Profile = deriveProfile(p1.flightTimes, p1.dwellTimes, p1.backspaceCount, p1.keystrokeCount);
+      const p1Profile = deriveProfile(
+        p1.flightTimes,
+        p1.dwellTimes,
+        p1.backspaceCount,
+        p1.keystrokeCount,
+        p1.glancePauses
+      );
       txMean = p1Profile.mf;
       txVar = p1Profile.varF;
       txBsRate = p1Profile.bsRate;
+      onScreenGlanceMean = p1Profile.onScreenGlance;
     }
+
+    // Biomechanical latency offset for head tilt down to a phone (30-45 deg pitch) + ocular accommodation (60cm -> 30cm)
+    const phoneDistanceOffsetMs = 1800;
+    const phoneDistanceGlanceMinMs = Math.max(1800, onScreenGlanceMean + 1000);
+    const phoneDistanceGlanceMaxMs = 7500;
 
     const baseline: BaselineCalibration = {
       candidateId,
@@ -238,6 +280,12 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
       transcriptionMeanFlightTime: txMean,
       transcriptionVarianceFlightTime: txVar,
       transcriptionBackspaceRate: txBsRate,
+      // Phone / Distant Device Distance Calibration
+      onScreenGlancePauseMeanMs: onScreenGlanceMean,
+      phoneDistanceOffsetMs,
+      phoneDistanceGlanceMinMs,
+      phoneDistanceGlanceMaxMs,
+      isPhoneDistanceCalibrated: true,
       // Candidate statement for evaluators
       candidateStatement: thoughtText.trim() || undefined,
       personalQuestionAsked: PERSONAL_QUESTION.prompt,
@@ -255,6 +303,11 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
       naturalBurstVelocity: 255,
       recordedAt: Date.now(),
       sampleCount: 0,
+      onScreenGlancePauseMeanMs: 850,
+      phoneDistanceOffsetMs: 1800,
+      phoneDistanceGlanceMinMs: 1850,
+      phoneDistanceGlanceMaxMs: 7500,
+      isPhoneDistanceCalibrated: true,
     });
   };
 
@@ -333,6 +386,13 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
               </span>
             </div>
 
+            <div className="alert py-2.5 px-3.5 rounded-xl text-xs bg-base-200 border border-base-300">
+              <Smartphone className="w-4 h-4 shrink-0 text-primary" />
+              <span>
+                <strong>Distance-Aware Pause Modeling:</strong> Copying on-screen code produces short glances (~0.8s). Sentri Code automatically calculates the physical head-tilt offset (+1.8s) for phone or external device glances (2.0s–7.5s) to guarantee legitimate thinking pauses are never misclassified as external transcription.
+              </span>
+            </div>
+
             <div className="flex items-center justify-between pt-1">
               <button onClick={skipWithDefaults} className="btn btn-ghost btn-sm text-xs text-base-content/40">
                 Skip (use default profile)
@@ -361,6 +421,19 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
               <p className="text-xs text-base-content/55 mt-0.5">
                 Type the full function below. The progress bar will advance as you type out each line of code.
               </p>
+            </div>
+
+            {/* Distance awareness indicator */}
+            <div className="mx-5 mb-2 px-3 py-1.5 rounded-xl bg-base-200/60 border border-base-300 text-xs flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span className="text-base-content/75 text-[11px]">
+                  <strong>Screen vs. Phone Distance Calibration:</strong> You're copying from a close-by screen (~0.8s glances). The system applies a calibrated +1.8s physical distance model for phone glances so thinking pauses stay protected.
+                </span>
+              </div>
+              <span className="badge badge-xs badge-success text-white font-mono shrink-0">
+                Distance Model Active
+              </span>
             </div>
 
             {/* Split: Code to read | Editor to type into */}

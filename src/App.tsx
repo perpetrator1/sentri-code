@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PROBLEMS } from './data/problems';
-import { db, seedInitialMockDataIfEmpty } from './db';
+import { db, seedInitialMockDataIfEmpty, removeDuplicateReplaySequence } from './db';
 import { useKeystrokeInference } from './telemetry/useKeystrokeInference';
 import { executeCode } from './sandbox/sandboxRunner';
 import { computeSHA256 } from './utils/crypto';
@@ -12,6 +12,7 @@ import type {
   Problem,
   TestResult,
   SubmissionPayload,
+  CodeSnapshot,
 } from './types';
 
 // Candidate UI Components
@@ -185,10 +186,97 @@ const MainApp: React.FC = () => {
     return () => window.removeEventListener('keydown', handleGlobalKey);
   }, []);
 
-  // Autosave code snapshots to Dexie IndexedDB every 5 seconds
+  // Forensic session snapshots capture
+  const sessionSnapshotsRef = useRef<CodeSnapshot[]>([]);
+  const lastRecordedCodeRef = useRef<string>(PROBLEMS[0].starterCode.javascript);
+  const lastSnapshotTimeRef = useRef<number>(Date.now());
+  const typingDebounceTimerRef = useRef<any>(null);
+
+  // Initialize session snapshots on problem or language selection
+  const initializeSnapshots = useCallback((initialCode: string, lang: 'javascript' | 'python') => {
+    sessionSnapshotsRef.current = [
+      {
+        timestamp: Date.now(),
+        code: initialCode,
+        language: lang,
+        trigger: 'initial',
+        charCount: initialCode.length,
+        integrityScoreAtMoment: 1.0,
+      },
+    ];
+    lastRecordedCodeRef.current = initialCode;
+    lastSnapshotTimeRef.current = Date.now();
+  }, []);
+
+  // Initialize session snapshots once on component mount
+  useEffect(() => {
+    initializeSnapshots(PROBLEMS[0].starterCode.javascript, 'javascript');
+  }, [initializeSnapshots]);
+
+  const recordCodeSnapshot = useCallback(
+    (newCode: string, trigger: 'typing' | 'test_run' | 'paste' | 'manual' | 'snippet') => {
+      if (newCode === lastRecordedCodeRef.current && sessionSnapshotsRef.current.length > 0) return;
+      lastRecordedCodeRef.current = newCode;
+      lastSnapshotTimeRef.current = Date.now();
+
+      const snap: CodeSnapshot = {
+        timestamp: Date.now(),
+        code: newCode,
+        language,
+        trigger: trigger as any,
+        charCount: newCode.length,
+        integrityScoreAtMoment: currentMetrics.integrityConfidence,
+      };
+
+      sessionSnapshotsRef.current.push(snap);
+    },
+    [language, currentMetrics.integrityConfidence]
+  );
+
+  const handleCodeChange = useCallback(
+    (newCode: string) => {
+      setCode(newCode);
+
+      if (typingDebounceTimerRef.current) {
+        clearTimeout(typingDebounceTimerRef.current);
+      }
+
+      const now = Date.now();
+      const timeSinceLast = now - lastSnapshotTimeRef.current;
+      const charDiff = Math.abs(newCode.length - lastRecordedCodeRef.current.length);
+
+      // Snapshot immediately if typing continuously for > 2.5s or if edit delta is large (>= 15 chars)
+      if (timeSinceLast > 2500 || charDiff >= 15) {
+        recordCodeSnapshot(newCode, 'typing');
+      } else {
+        // Otherwise debounce 1000ms after candidate pauses typing
+        typingDebounceTimerRef.current = setTimeout(() => {
+          recordCodeSnapshot(newCode, 'typing');
+        }, 1000);
+      }
+    },
+    [recordCodeSnapshot]
+  );
+
+  const handlePasteWithSnapshot = useCallback(
+    (length: number) => {
+      handlePaste(length);
+      setTimeout(() => {
+        if (editorRef.current) {
+          recordCodeSnapshot(editorRef.current.getValue(), 'paste');
+        }
+      }, 50);
+    },
+    [handlePaste, recordCodeSnapshot]
+  );
+
+  const lastSavedCodeRef = useRef<string>('');
+  // Autosave code snapshots to Dexie IndexedDB every 5 seconds (only when code changed)
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
+        if (code === lastSavedCodeRef.current) return;
+        lastSavedCodeRef.current = code;
         await db.snapshots.add({
           timestamp: Date.now(),
           code,
@@ -209,21 +297,27 @@ const MainApp: React.FC = () => {
   // Change problem
   const handleSelectProblem = (prob: Problem) => {
     setActiveProblem(prob);
-    setCode(prob.starterCode[language]);
+    const starter = prob.starterCode[language];
+    setCode(starter);
     setTestResults([]);
+    initializeSnapshots(starter, language);
   };
 
   // Change language
   const handleChangeLanguage = (newLang: 'javascript' | 'python') => {
     setLanguage(newLang);
-    setCode(activeProblem.starterCode[newLang]);
+    const starter = activeProblem.starterCode[newLang];
+    setCode(starter);
     setTestResults([]);
+    initializeSnapshots(starter, newLang);
   };
 
   // Reset code to starter template
   const handleResetCode = () => {
     if (window.confirm('Reset code to initial problem template? Current changes will be stored in history.')) {
-      setCode(activeProblem.starterCode[language]);
+      const template = activeProblem.starterCode[language];
+      setCode(template);
+      recordCodeSnapshot(template, 'manual');
     }
   };
 
@@ -244,8 +338,10 @@ const MainApp: React.FC = () => {
         },
       ]);
       editor.focus();
+      const currentVal = editor.getValue();
+      recordCodeSnapshot(currentVal, 'snippet');
     }
-  }, []);
+  }, [recordCodeSnapshot]);
 
   // Run Test Cases via Sandboxed Runner (Server API or local fallback)
   const handleRunTests = async () => {
@@ -253,7 +349,8 @@ const MainApp: React.FC = () => {
     setIsTestPanelExpanded(true);
 
     try {
-      // Snapshot before test run
+      // Record candidate snapshot on test run
+      recordCodeSnapshot(code, 'test_run');
       await db.snapshots.add({
         timestamp: Date.now(),
         code,
@@ -333,6 +430,28 @@ const MainApp: React.FC = () => {
 
     const integrityHash = await computeSHA256(rawDataForHash);
 
+    // Flush any pending typing debounce timer and record final snapshot
+    if (typingDebounceTimerRef.current) {
+      clearTimeout(typingDebounceTimerRef.current);
+    }
+    recordCodeSnapshot(code, 'manual');
+
+    // Ensure initial snapshot is present at the beginning
+    const rawSnaps = [...sessionSnapshotsRef.current];
+    if (rawSnaps.length === 0 || rawSnaps[0].trigger !== 'initial') {
+      rawSnaps.unshift({
+        timestamp: rawSnaps[0]?.timestamp ? rawSnaps[0].timestamp - 10000 : Date.now() - 60000,
+        code: activeProblem.starterCode[language],
+        language,
+        trigger: 'initial',
+        charCount: activeProblem.starterCode[language].length,
+        integrityScoreAtMoment: 1.0,
+      });
+    }
+
+    // Strict deduplication: guarantees no consecutive duplicates and no repeated cycle loops
+    const cleanSessionSnaps = removeDuplicateReplaySequence(rawSnaps);
+
     const payload: SubmissionPayload = {
       id: submissionId,
       candidateId,
@@ -348,11 +467,20 @@ const MainApp: React.FC = () => {
       telemetrySummary,
       anomalyTimeline,
       baseline,
+      snapshots: cleanSessionSnaps,
       status: 'synced',
     };
 
     // Always store in IndexedDB
     await db.submissions.put(payload);
+
+    // Also persist under replay-${submissionId} for instant forensic lookup without synthetic seeding
+    const replaySnaps = cleanSessionSnaps.map((s) => ({
+      ...s,
+      trigger: `replay-${submissionId}` as any,
+    }));
+    await db.snapshots.where('trigger').equals(`replay-${submissionId}`).delete();
+    await db.snapshots.bulkAdd(replaySnaps);
 
     // Broadcast live submission event across browser tabs/windows
     try {
@@ -438,14 +566,14 @@ const MainApp: React.FC = () => {
           <Workspace
             problem={activeProblem}
             code={code}
-            onChangeCode={setCode}
+            onChangeCode={handleCodeChange}
             language={language}
             onChangeLanguage={handleChangeLanguage}
             onResetCode={handleResetCode}
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
             onCursorChange={handleCursorChange}
-            onPaste={handlePaste}
+            onPaste={handlePasteWithSnapshot}
             onInsertSnippet={handleInsertSnippetAtCursor}
             theme={theme}
             editorRef={editorRef}

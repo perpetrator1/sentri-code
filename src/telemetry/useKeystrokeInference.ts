@@ -20,6 +20,11 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
     naturalBurstVelocity: 255,
     recordedAt: Date.now(),
     sampleCount: 50,
+    onScreenGlancePauseMeanMs: 850,
+    phoneDistanceOffsetMs: 1800,
+    phoneDistanceGlanceMinMs: 1850,
+    phoneDistanceGlanceMaxMs: 7500,
+    isPhoneDistanceCalibrated: true,
   });
 
   const [currentMetrics, setCurrentMetrics] = useState<SlidingWindowMetrics>({
@@ -33,6 +38,8 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
     pauseDistribution: { micro: 0.45, cognitive: 0.45, deepIdle: 0.1 },
     integrityConfidence: 0.98,
     isTranscribingAnomaly: false,
+    isPhoneTranscriptionAnomaly: false,
+    phoneGlancePauseCount: 0,
   });
 
   const [anomalyTimeline, setAnomalyTimeline] = useState<AnomalyTimelineEntry[]>([]);
@@ -158,7 +165,7 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
       setCurrentMetrics(metrics);
 
       // Accumulate window scores for holistic session accuracy
-      if (buffer.length >= 12) {
+      if (buffer.length >= 8) {
         allWindowScoresRef.current.push(metrics.integrityConfidence);
       }
 
@@ -200,12 +207,12 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
         setIsAdapting(false);
       }
 
-      // If an anomaly is detected, record on timeline (throttled to at most one per 3.5s)
+      // If an anomaly is detected, record on timeline (throttled to at most one per 2.0s)
       const nowMs = Date.now();
       if (
         metrics.anomalyReport &&
         metrics.anomalyReport.isAnomaly &&
-        nowMs - lastRecordedAnomalyTimeRef.current > 3500
+        nowMs - lastRecordedAnomalyTimeRef.current > 2000
       ) {
         lastRecordedAnomalyTimeRef.current = nowMs;
 
@@ -300,25 +307,26 @@ export function useKeystrokeInference(candidateId: string, problemId: string) {
       const anomaliesCount = anomalyTimeline.length;
 
       // Holistic Session Integrity Evaluation
-      if (totalKeys >= 30) {
-        const anomalyDensity = anomaliesCount / totalWindows;
-
-        if (anomaliesCount === 0) {
-          // Clean session: high authentic human confidence (88% - 98%)
+      if (totalKeys >= 12) {
+        if (anomaliesCount >= 1) {
+          // If anomalies were detected (e.g. phone sight-typing), reflect the penalized score directly!
+          const minAnomalyScore = Math.min(...anomalyTimeline.map((a) => a.confidenceScore));
+          holisticConfidence = Math.min(rawAvg, minAnomalyScore, 0.42);
+        } else if (totalBackspaces === 0 && totalKeys >= 16) {
+          // Linear transcription with zero backspaces/corrections across 16+ keys
+          holisticConfidence = Math.min(rawAvg, 0.38);
+        } else if (sessionBackspaceRate < 0.03 && totalKeys >= 25) {
+          // Abnormally low backspace rate without corrections
+          holisticConfidence = Math.min(rawAvg, 0.55);
+        } else if (anomaliesCount === 0 && sessionBackspaceRate >= 0.04) {
+          // Clean session with authentic human self-corrections: high confidence (88% - 98%)
           holisticConfidence = Math.min(0.98, Math.max(0.88, rawAvg));
-        } else if (anomaliesCount === 1 && totalWindows >= 4) {
-          // Single isolated anomaly flutter in an otherwise healthy session
-          holisticConfidence = Math.min(0.92, Math.max(0.80, rawAvg - 0.06));
-        } else if (anomaliesCount >= 2 && (anomalyDensity >= 0.25 || anomaliesCount >= 3)) {
-          // Chronic, recurring transcription anomalies across multiple windows (sight-typing)
-          holisticConfidence = Math.min(0.45, Math.max(0.25, rawAvg - (anomalyDensity * 0.5)));
         } else {
-          // Minor anomalies: proportional deduction based on anomaly density
-          holisticConfidence = Math.max(0.40, rawAvg - (anomalyDensity * 0.35));
+          holisticConfidence = Math.min(0.85, Math.max(0.40, rawAvg));
         }
 
-        // Reinforce authentic coding with healthy cognitive pauses and self-corrections
-        if (currentMetrics.pauseDistribution.cognitive >= 0.15 && sessionBackspaceRate >= 0.04) {
+        // Reinforce authentic coding ONLY when healthy cognitive pauses AND genuine self-corrections exist, with 0 anomalies
+        if (anomaliesCount === 0 && currentMetrics.pauseDistribution.cognitive >= 0.15 && sessionBackspaceRate >= 0.04) {
           holisticConfidence = Math.min(0.98, holisticConfidence + 0.04);
         }
       }

@@ -24,6 +24,7 @@ export interface WindowAnomalyReport {
     speedRatio: number; // live speed / personal baseline
     varianceRatio: number; // live variance / personal baseline variance
     entropyDelta: number; // personal baseline entropy - live entropy
+    phoneGlanceCount?: number; // count of phone distance glance pauses
   };
 }
 
@@ -75,9 +76,14 @@ export function analyzeWindow(
   const baselineMean = baseline?.meanFlightTime || 165;
   const baselineVar = baseline?.varianceFlightTime || 2200;
   const baselineEntropy = baseline?.baselineEntropy || 0.82;
-  // Personalized Glance Pause Boundaries: human gaze saccades to secondary screen take 1.4s–4.8s
+
+  // Personalized Phone & Distant Device Glance Pause Boundaries:
+  // On-screen near-field glance (same monitor): ~600ms - 1500ms
+  // Off-screen / Phone glance (physical distance, head tilt, ocular accommodation): ~1800ms - 7500ms
+  const phoneGlanceMin = baseline?.phoneDistanceGlanceMinMs || 1800;
+  const phoneGlanceMax = baseline?.phoneDistanceGlanceMaxMs || 7500;
   const glancePauseMin = Math.max(1400, Math.min(2000, baseline?.naturalPauseThresholdMs || 1600));
-  const glancePauseMax = Math.max(4800, Math.round(baselineMean * 9.0));
+  const glancePauseMax = phoneGlanceMax;
 
   if (count < 8) {
     return {
@@ -91,6 +97,8 @@ export function analyzeWindow(
       pauseDistribution: { micro: 0.4, cognitive: 0.5, deepIdle: 0.1 },
       integrityConfidence: 0.98,
       isTranscribingAnomaly: false,
+      isPhoneTranscriptionAnomaly: false,
+      phoneGlancePauseCount: 0,
     };
   }
 
@@ -132,7 +140,7 @@ export function analyzeWindow(
 
       // Personalized Eye-Glance Pause detection based on candidate's own pause threshold
       if (flightTime >= glancePauseMin && flightTime <= glancePauseMax) {
-        if (currentChunkKeys.length >= 8) {
+        if (currentChunkKeys.length >= 6) {
           const meanF = currentChunkKeys.reduce((a, b) => a + b, 0) / currentChunkKeys.length;
           const varF = currentChunkKeys.reduce((acc, ft) => acc + Math.pow(ft - meanF, 2), 0) / currentChunkKeys.length;
 
@@ -142,14 +150,14 @@ export function analyzeWindow(
             intraFlightMean: Math.round(meanF),
             intraFlightVariance: Math.round(varF),
             backspaceCount: currentChunkBackspaces,
-            isMotorSlipOnly: currentChunkBackspaces <= 2,
+            isMotorSlipOnly: currentChunkBackspaces <= 1,
           });
         }
 
         lastPauseDuration = flightTime;
         currentChunkKeys = [];
         currentChunkBackspaces = 0;
-      } else if (flightTime < 1000) {
+      } else {
         currentChunkKeys.push(flightTime);
       }
     }
@@ -173,7 +181,7 @@ export function analyzeWindow(
   }
 
   // Push final chunk
-  if (currentChunkKeys.length >= 8) {
+  if (currentChunkKeys.length >= 6) {
     const meanF = currentChunkKeys.reduce((a, b) => a + b, 0) / currentChunkKeys.length;
     const varF = currentChunkKeys.reduce((acc, ft) => acc + Math.pow(ft - meanF, 2), 0) / currentChunkKeys.length;
     chunks.push({
@@ -182,7 +190,7 @@ export function analyzeWindow(
       intraFlightMean: Math.round(meanF),
       intraFlightVariance: Math.round(varF),
       backspaceCount: currentChunkBackspaces,
-      isMotorSlipOnly: currentChunkBackspaces <= 2,
+      isMotorSlipOnly: currentChunkBackspaces <= 1,
     });
   }
 
@@ -225,7 +233,7 @@ export function analyzeWindow(
   
   // Authentic coding characteristics (structural refactoring, cross-line navigation)
   // Isolated 1-2 backspaces are merely motor-slips (which transcribers also make)
-  const hasStructuralRefactoring = maxConsecutiveBackspaces >= 4 || navCount >= 3;
+  const hasStructuralRefactoring = maxConsecutiveBackspaces >= 3 || navCount >= 2 || (backspaceCount >= 3 && refactoringIndex >= 0.08);
   const hasAuthenticEdits = hasStructuralRefactoring;
   const hasCognitivePauses = cognitivePauses >= 1;
   const hasOrganicCadence = metronomicEntropy >= 0.65;
@@ -248,30 +256,77 @@ export function analyzeWindow(
 
   let confidence = 0.96;
   let isTranscribingAnomaly = false;
+  let isPhoneTranscriptionAnomaly = false;
   let anomalyReason = '';
   let anomalySeverity: 'low' | 'medium' | 'high' = 'low';
 
-  // ── PERSONALIZED VECTOR A: Saccadic Glance-Burst Rhythm ──
-  // Periodic glance pauses (1.5s–5s looking away to phone/second screen) followed by flat memory bursts
-  const saccadicChunks = chunks.filter(c => 
-    c.pauseBeforeMs >= 1500 && 
-    c.pauseBeforeMs <= glancePauseMax && 
-    c.charCount >= 10 && 
-    c.charCount <= 45 &&
-    c.intraFlightVariance < (baselineVar * 0.42) // rhythmically flat relative to personal baseline
+  // ── PERSONALIZED VECTOR A: Phone / Distant Device Transcription (Saccadic Glance-Burst Rhythm) ──
+  // When looking at a phone or secondary device at a distance:
+  // 1. Gaze shift + head-tilt down to phone takes longer (1.8s–7.5s pauses).
+  // 2. Continuous linear code typing (at least 8 chars) from visual memory.
+  // 3. Zero structural refactoring (at most 1 isolated motor-slip backspace).
+  // 4. Mean flight speed consistent with visual transcription (no internal thinking stalls).
+  const phoneSaccadicChunks = chunks.filter(c => 
+    c.pauseBeforeMs >= phoneGlanceMin && 
+    c.pauseBeforeMs <= phoneGlanceMax && 
+    c.charCount >= 8 && 
+    c.isMotorSlipOnly && // 0 or at most 1 backspace
+    c.intraFlightMean <= baselineMean * 1.6
   );
 
-  if (saccadicChunks.length >= 2 && !hasAuthenticEdits) {
-    confidence -= 0.45;
+  if (phoneSaccadicChunks.length >= 2 && !hasAuthenticEdits) {
+    confidence = Math.min(confidence, 0.25);
     isTranscribingAnomaly = true;
+    isPhoneTranscriptionAnomaly = true;
     anomalySeverity = 'high';
-    anomalyReason = `Saccadic transcription rhythm: detected ${saccadicChunks.length} periodic glance pauses (1.5s–5s) followed by flat memory bursts`;
+    const avgPauseSec = (
+      phoneSaccadicChunks.reduce((acc, c) => acc + c.pauseBeforeMs, 0) /
+      (phoneSaccadicChunks.length * 1000)
+    ).toFixed(1);
+    anomalyReason = `Phone / off-screen transcription cadence: detected ${phoneSaccadicChunks.length} distant-device glance pauses (avg ${avgPauseSec}s) followed by linear transcription bursts with zero refactoring`;
+  } else if (
+    phoneSaccadicChunks.length === 1 &&
+    phoneSaccadicChunks[0].charCount >= 10 &&
+    !hasAuthenticEdits &&
+    backspaceCount <= 1
+  ) {
+    confidence = Math.min(confidence, 0.35);
+    isTranscribingAnomaly = true;
+    isPhoneTranscriptionAnomaly = true;
+    anomalySeverity = phoneSaccadicChunks[0].charCount >= 18 ? 'high' : 'medium';
+    const pauseSec = (phoneSaccadicChunks[0].pauseBeforeMs / 1000).toFixed(1);
+    anomalyReason = `Phone sight-typing detected: candidate paused for ${pauseSec}s to view external device, then typed ${phoneSaccadicChunks[0].charCount} characters linearly with zero refactoring`;
+  } else if (count >= 15 && backspaceCount === 0 && !hasAuthenticEdits) {
+    const hasPhonePause = flightTimes.some(ft => ft >= phoneGlanceMin && ft <= phoneGlanceMax);
+    if (hasPhonePause) {
+      confidence = Math.min(confidence, 0.35);
+      isTranscribingAnomaly = true;
+      isPhoneTranscriptionAnomaly = true;
+      anomalySeverity = 'high';
+      anomalyReason = `Linear phone transcription: ${count} characters typed with zero corrections following an off-screen glance pause`;
+    }
+  }
+
+  // Near-screen saccadic chunks (e.g. split-screen reference on same monitor)
+  const nearScreenSaccadicChunks = chunks.filter(c =>
+    c.pauseBeforeMs >= glancePauseMin &&
+    c.pauseBeforeMs < phoneGlanceMin &&
+    c.charCount >= 10 &&
+    c.isMotorSlipOnly &&
+    c.intraFlightMean <= baselineMean * 1.5
+  );
+
+  if (!isPhoneTranscriptionAnomaly && nearScreenSaccadicChunks.length >= 2 && !hasAuthenticEdits) {
+    confidence = Math.min(confidence, 0.38);
+    isTranscribingAnomaly = true;
+    anomalySeverity = 'medium';
+    anomalyReason = `On-screen transcription rhythm: detected ${nearScreenSaccadicChunks.length} split-view glance pauses followed by flat memory bursts`;
   }
 
   // ── PERSONALIZED VECTOR B: Personal Variance Collapse (Sight-Typing Beat) ──
   // Cadence collapsed to a flat robotic beat relative to candidate's own natural jitter
   if (intraFlights.length >= 16 && varianceRatio < 0.25 && !hasAuthenticEdits) {
-    confidence -= 0.35;
+    confidence = Math.min(confidence, 0.35);
     isTranscribingAnomaly = true;
     if (!anomalyReason) {
       anomalySeverity = varianceRatio < 0.15 ? 'high' : 'medium';
@@ -282,7 +337,7 @@ export function analyzeWindow(
   // ── PERSONALIZED VECTOR C: Velocity Acceleration without Refactoring ──
   // Typing at more than double their calibrated natural speed without refactoring
   if (count >= 25 && speedRatio >= 1.95 && !hasAuthenticEdits) {
-    confidence -= 0.30;
+    confidence = Math.min(confidence, 0.30);
     isTranscribingAnomaly = true;
     if (!anomalyReason) {
       anomalySeverity = speedRatio >= 2.3 ? 'high' : 'medium';
@@ -291,23 +346,23 @@ export function analyzeWindow(
   }
 
   // ── PERSONALIZED VECTOR D: Linear Photocopy Anomaly ──
-  // Requires a long sequence (45+ keys) with ZERO corrections AND robotic cadence collapse (not normal clean coding)
-  if (count >= 45 && backspaceCount === 0 && varianceRatio < 0.25 && entropyDelta > 0.22) {
-    confidence -= 0.35;
+  // Requires a long sequence (25+ keys) with ZERO corrections AND no authentic edits
+  if (count >= 25 && backspaceCount === 0 && !hasAuthenticEdits) {
+    confidence = Math.min(confidence, 0.30);
     isTranscribingAnomaly = true;
     if (!anomalyReason) {
-      anomalySeverity = 'medium';
-      anomalyReason = 'Linear photocopy anomaly: sustained tokens typed with zero corrections and robotic cadence collapse';
+      anomalySeverity = 'high';
+      anomalyReason = 'Linear photocopy anomaly: sustained tokens typed with zero corrections and zero refactoring';
     }
   }
 
-  // ── PERSONALIZED VECTOR E: Empirical Transcription Signature Match (Phase 1 Calibration) ──
+  // ── PERSONALIZED VECTOR E: Empirical Transcription Signature Match (Phase 1 Calibration + Distance Offset) ──
   // Matches Phase 1 transcription speed and variance COMBINED with saccadic glance pauses
   if (
     baseline?.transcriptionMeanFlightTime &&
     baseline?.transcriptionVarianceFlightTime &&
     count >= 20 &&
-    (saccadicChunks.length >= 1 || varianceRatio < 0.30) &&
+    (phoneSaccadicChunks.length >= 1 || nearScreenSaccadicChunks.length >= 1 || varianceRatio < 0.30) &&
     !hasAuthenticEdits
   ) {
     const txMean = baseline.transcriptionMeanFlightTime;
@@ -315,18 +370,26 @@ export function analyzeWindow(
     const flightRatioToTx = meanFlight / txMean;
 
     if (flightRatioToTx >= 0.75 && flightRatioToTx <= 1.25 && intraBurstVariance <= txVar * 1.35) {
-      confidence -= 0.40;
+      confidence = Math.min(confidence, 0.30);
       isTranscribingAnomaly = true;
       if (!anomalyReason) {
         anomalySeverity = 'high';
-        anomalyReason = `Transcription signature match: live cadence (${Math.round(meanFlight)}ms, ${Math.round(intraBurstVariance)}ms²) matches calibrated Phase 1 read-and-type profile (${txMean}ms, ${txVar}ms²)`;
+        if (phoneSaccadicChunks.length >= 1) {
+          isPhoneTranscriptionAnomaly = true;
+          anomalyReason = `Phone transcription signature: live typing burst cadence (${Math.round(meanFlight)}ms) matches Phase 1 profile (${txMean}ms) with distant phone-glance pause intervals (${(phoneSaccadicChunks[0].pauseBeforeMs / 1000).toFixed(1)}s)`;
+        } else {
+          anomalyReason = `Transcription signature match: live cadence (${Math.round(meanFlight)}ms, ${Math.round(intraBurstVariance)}ms²) matches calibrated Phase 1 read-and-type profile (${txMean}ms, ${txVar}ms²)`;
+        }
       }
     }
   }
 
   // ── REASSURANCE BOOST: Authentic Conceptual Problem Solving ──
-  if (hasAuthenticEdits || (hasCognitivePauses && hasOrganicCadence)) {
-    confidence = Math.min(0.98, confidence + 0.05);
+  // ONLY reward genuine problem-solving when NO transcription anomaly is present
+  if (!isTranscribingAnomaly && !isPhoneTranscriptionAnomaly) {
+    if (hasAuthenticEdits || (hasCognitivePauses && hasOrganicCadence && backspaceCount >= 2)) {
+      confidence = Math.min(0.98, confidence + 0.05);
+    }
   }
 
   confidence = Math.max(0.15, Math.min(1.0, Number(confidence.toFixed(2))));
@@ -342,6 +405,8 @@ export function analyzeWindow(
     pauseDistribution,
     integrityConfidence: confidence,
     isTranscribingAnomaly,
+    isPhoneTranscriptionAnomaly,
+    phoneGlancePauseCount: phoneSaccadicChunks.length,
     anomalyReport: isTranscribingAnomaly ? {
       isAnomaly: true,
       reason: anomalyReason,
@@ -351,6 +416,7 @@ export function analyzeWindow(
         speedRatio,
         varianceRatio,
         entropyDelta,
+        phoneGlanceCount: phoneSaccadicChunks.length,
       },
     } : undefined,
   };

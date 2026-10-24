@@ -47,15 +47,7 @@ You can return the answer in any order (indices ascending).
  */
 function twoSum(nums, target) {
   // Your code here
-  const map = new Map();
-  for (let i = 0; i < nums.length; i++) {
-    const complement = target - nums[i];
-    if (map.has(complement)) {
-      return [map.get(complement), i];
-    }
-    map.set(nums[i], i);
-  }
-  return [];
+  
 }`,
       python: `def twoSum(nums, target):
     """
@@ -63,13 +55,8 @@ function twoSum(nums, target) {
     :type target: int
     :rtype: List[int]
     """
-    seen = {}
-    for i, num in enumerate(nums):
-        complement = target - num
-        if complement in seen:
-            return [seen[complement], i]
-        seen[num] = i
-    return []
+    # Your code here
+    pass
 `
     },
     testCases: [
@@ -140,22 +127,12 @@ An **Anagram** is a word or phrase formed by rearranging the letters of a differ
  * @return {boolean}
  */
 function isAnagram(s, t) {
-  if (s.length !== t.length) return false;
+  // Your code here
   
-  // Tip: Check Reference Manual for frequency counting patterns
-  const count = {};
-  for (const ch of s) count[ch] = (count[ch] || 0) + 1;
-  for (const ch of t) {
-    if (!count[ch]) return false;
-    count[ch]--;
-  }
-  return true;
 }`,
       python: `def isAnagram(s: str, t: str) -> bool:
-    if len(s) != len(t):
-        return False
-    from collections import Counter
-    return Counter(s) == Counter(t)
+    # Your code here
+    pass
 `
     },
     testCases: [
@@ -219,36 +196,12 @@ function isAnagram(s, t) {
  * @return {number[][]}
  */
 function merge(intervals) {
-  if (intervals.length <= 1) return intervals;
+  // Your code here
   
-  // Sort intervals by start time
-  intervals.sort((a, b) => a[0] - b[0]);
-  
-  const result = [intervals[0]];
-  for (let i = 1; i < intervals.length; i++) {
-    const current = intervals[i];
-    const last = result[result.length - 1];
-    
-    if (current[0] <= last[1]) {
-      last[1] = Math.max(last[1], current[1]);
-    } else {
-      result.push(current);
-    }
-  }
-  return result;
 }`,
       python: `def merge(intervals):
-    if len(intervals) <= 1:
-        return intervals
-    intervals.sort(key=lambda x: x[0])
-    merged = [intervals[0]]
-    for current in intervals[1:]:
-        last = merged[-1]
-        if current[0] <= last[1]:
-            last[1] = max(last[1], current[1])
-        else:
-            merged.append(current)
-    return merged
+    # Your code here
+    pass
 `
     },
     testCases: [

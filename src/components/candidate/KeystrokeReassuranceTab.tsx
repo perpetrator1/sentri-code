@@ -27,6 +27,11 @@ export const KeystrokeReassuranceTab: React.FC<KeystrokeReassuranceTabProps> = (
       desc: 'Stopping to think for a second (or five) is totally normal. Our system knows pauses are part of real problem-solving.',
     },
     {
+      emoji: '📱',
+      title: 'Distance & pause intelligence',
+      desc: 'We model the difference between looking at an adjacent screen vs. looking down at a phone. Healthy thinking pauses have natural rhythm variation and edits, keeping you protected.',
+    },
+    {
       emoji: '✏️',
       title: 'Fixing typos is healthy',
       desc: 'Backspacing, rewording, navigating around your code — this is what authentic coding looks like.',

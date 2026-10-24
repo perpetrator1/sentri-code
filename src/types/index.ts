@@ -39,6 +39,13 @@ export interface BaselineCalibration {
   transcriptionVarianceFlightTime?: number;
   transcriptionBackspaceRate?: number;
 
+  // Phone / Distant Device Distance Calibration
+  onScreenGlancePauseMeanMs?: number; // Average pause during near-field on-screen copying (~500-1200ms)
+  phoneDistanceOffsetMs?: number; // Biomechanical latency for head-tilt + ocular accommodation (~1500-2500ms)
+  phoneDistanceGlanceMinMs?: number; // Calibrated lower bound for off-screen/phone glance pause (~1800-2200ms)
+  phoneDistanceGlanceMaxMs?: number; // Calibrated upper bound for off-screen/phone glance pause (~7000-8000ms)
+  isPhoneDistanceCalibrated?: boolean;
+
   // Phase 2 — "From the Mind" personal context (stored for examiner context)
   candidateStatement?: string; // Answer to personal question (evaluator-facing, candidly volunteered)
   personalQuestionAsked?: string;
@@ -59,6 +66,8 @@ export interface SlidingWindowMetrics {
   };
   integrityConfidence: number; // 0.0 to 1.0 continuous float
   isTranscribingAnomaly: boolean;
+  isPhoneTranscriptionAnomaly?: boolean;
+  phoneGlancePauseCount?: number;
 }
 
 export interface AnomalyTimelineEntry {
@@ -76,7 +85,7 @@ export interface CodeSnapshot {
   timestamp: number;
   code: string;
   language: 'javascript' | 'python';
-  trigger: 'autosave' | 'test_run' | 'snippet_insert' | 'manual';
+  trigger: 'autosave' | 'test_run' | 'snippet_insert' | 'manual' | 'typing' | 'paste' | 'initial' | string;
   cursorOffset?: number;
   charCount: number;
   integrityScoreAtMoment?: number;
@@ -187,6 +196,7 @@ export interface SubmissionPayload {
   baseline: BaselineCalibration;
   status: 'pending_sync' | 'synced';
   examinerVerdict?: ExaminerVerdict;
+  snapshots?: CodeSnapshot[];
 }
 
 export interface OutboxItem {
