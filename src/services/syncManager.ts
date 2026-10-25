@@ -18,7 +18,7 @@ class SyncManager {
         this.notify({
           id: `online-${Date.now()}`,
           type: 'info',
-          message: '✨ Internet connection detected. Checking local submissions to sync...',
+          message: 'Internet connection detected. Checking local submissions to sync...',
         });
         this.syncOutbox();
       });
@@ -95,7 +95,7 @@ class SyncManager {
         this.notify({
           id: `synced-${Date.now()}`,
           type: 'success',
-          message: `✨ Connection restored. ${syncedIds.length} local submission(s) safely synced to server.`,
+          message: `Connection restored. ${syncedIds.length} local submission(s) safely synced to server.`,
         });
       }
 

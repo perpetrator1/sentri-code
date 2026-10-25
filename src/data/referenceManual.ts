@@ -327,8 +327,8 @@ largest = -heapq.heappop(max_heap) # 42`,
     description: 'Sorts elements of an array. IMPORTANT: Default sort converts elements to strings!',
     snippet: `const nums = [10, 5, 40, 25, 1000];
 
-// ⚠️ BUG WARNING: nums.sort() gives [10, 1000, 25, 40, 5] (alphabetical!)
-// ✅ CORRECT NUMERIC SORT:
+// Note: nums.sort() gives [10, 1000, 25, 40, 5] (alphabetical)
+// Numeric sort:
 nums.sort((a, b) => a - b); // Ascending: [5, 10, 25, 40, 1000]
 nums.sort((a, b) => b - a); // Descending
 

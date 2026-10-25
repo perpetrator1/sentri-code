@@ -36,12 +36,11 @@ export const SubmissionModal: React.FC<SubmissionModalProps> = ({
   const score = submission.score;
   const integrity = Math.round(submission.telemetrySummary.averageIntegrityConfidence * 100);
 
-  const scoreEmoji = score === 100 ? '🎉' : score >= 80 ? '🙌' : score >= 60 ? '👍' : '💪';
   const scoreMsg =
-    score === 100 ? "Perfect score — all test cases passed!" :
-    score >= 80 ? "Great work — almost there!" :
-    score >= 60 ? "Good effort, keep going!" :
-    "You gave it a shot — that's what counts!";
+    score === 100 ? "All test cases passed." :
+    score >= 80 ? "Most test cases passed." :
+    score >= 60 ? "Partial test cases passed." :
+    "Assessment recorded.";
 
   const handleCopyHash = () => {
     navigator.clipboard.writeText(submission.integrityHash);
@@ -62,9 +61,9 @@ export const SubmissionModal: React.FC<SubmissionModalProps> = ({
 
           {/* Hero */}
           <div className="text-center space-y-2">
-            <div className="text-5xl">{scoreEmoji}</div>
-            <h2 className="text-xl font-black text-base-content">You're done!</h2>
-            <p className="text-sm text-base-content/60">{scoreMsg}</p>
+            <CheckCircle2 className="w-12 h-12 text-success mx-auto" />
+            <h2 className="text-xl font-bold text-base-content">Assessment Submitted</h2>
+            <p className="text-xs text-base-content/60">{scoreMsg}</p>
           </div>
 
           {/* Score + sync status */}
@@ -84,16 +83,16 @@ export const SubmissionModal: React.FC<SubmissionModalProps> = ({
             <div className="alert alert-warning rounded-xl py-2.5 text-xs">
               <WifiOff className="w-4 h-4 shrink-0" />
               <div>
-                <div className="font-bold">Saved locally — you're good!</div>
-                <div className="opacity-80">Your exam is stored safely and will sync automatically when you're back online.</div>
+                <div className="font-bold">Saved locally</div>
+                <div className="opacity-80">Stored locally and will sync automatically when back online.</div>
               </div>
             </div>
           ) : (
             <div className="alert alert-success rounded-xl py-2.5 text-xs">
               <Wifi className="w-4 h-4 shrink-0" />
               <div>
-                <div className="font-bold">Submitted & synced ✓</div>
-                <div className="opacity-80">Your submission was received successfully.</div>
+                <div className="font-bold">Submitted and synced</div>
+                <div className="opacity-80">Submission received and verified.</div>
               </div>
             </div>
           )}

@@ -487,11 +487,11 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                 >
                   {isCurrentAnomaly
                     ? currentStatus?.reason?.toLowerCase().includes('phone')
-                      ? '📱 Phone Sight-Typing'
-                      : '⚠️ Anomaly'
+                      ? 'Phone Sight-Typing'
+                      : 'Anomaly'
                     : currentStatus?.type === 'burst'
-                    ? '⚡ Burst'
-                    : '✓ Authentic'}
+                    ? 'Burst'
+                    : 'Authentic'}
                 </div>
               </div>
             </div>
@@ -747,7 +747,7 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                           {item.severity === 'high' && <span className="w-1.5 h-1.5 rounded-full bg-error" />}
                           {item.severity}
                           {item.anomalyReason.toLowerCase().includes('phone') && (
-                            <span className="badge badge-xs badge-error text-white font-mono font-bold ml-1">📱 Phone Distance</span>
+                            <span className="badge badge-xs badge-error text-white font-mono font-bold ml-1">Phone Distance</span>
                           )}
                         </span>
                         <span className="flex items-center gap-1">
@@ -792,7 +792,7 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                     verdictStatus === 'verified' ? 'btn-success text-white' : 'btn-outline btn-success'
                   }`}
                 >
-                  ✓ Verified
+                  Verified
                 </button>
                 <button
                   onClick={() => handleSave('flagged_viva')}
@@ -800,7 +800,7 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                     verdictStatus === 'flagged_viva' ? 'btn-warning text-white' : 'btn-outline btn-warning'
                   }`}
                 >
-                  🎤 Oral Viva
+                  Oral Viva
                 </button>
               </div>
               <button

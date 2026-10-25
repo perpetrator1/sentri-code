@@ -74,7 +74,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                   }`}
                 >
                   <span className="flex-1 truncate">
-                    {tc.isHidden ? `Case ${idx + 1} 🔒` : `Case ${idx + 1}`}
+                    {tc.isHidden ? `Case ${idx + 1} (Hidden)` : `Case ${idx + 1}`}
                   </span>
                   {r ? (
                     r.passed
@@ -98,7 +98,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] text-base-content/50">{selectedResult.executionTimeMs ?? 0}ms</span>
                       <span className={`badge badge-sm font-bold ${selectedResult.passed ? 'badge-success text-white' : 'badge-error text-white'}`}>
-                        {selectedResult.passed ? '✓ Pass' : '✗ Fail'}
+                        {selectedResult.passed ? 'Pass' : 'Fail'}
                       </span>
                     </div>
                   )}

@@ -44,8 +44,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 try {
   initDatabase();
   app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`🛡️ Sentri Code Backend running at http://localhost:${PORT}`);
-    console.log(`📡 API Endpoints available at http://localhost:${PORT}/api`);
+    console.log(`Sentri Code Backend running at http://localhost:${PORT}`);
+    console.log(`API Endpoints available at http://localhost:${PORT}/api`);
   });
 } catch (e) {
   console.error('Fatal initialization error:', e);

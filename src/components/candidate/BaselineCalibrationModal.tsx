@@ -320,13 +320,15 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
         <div className="px-6 pt-5 pb-4 border-b border-base-300 shrink-0">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
-              <div className="text-2xl">🎯</div>
+              <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                <Keyboard className="w-4 h-4" />
+              </div>
               <div>
                 <h2 className="text-base font-bold text-base-content leading-tight">
                   Biometric Typing Calibration
                 </h2>
                 <p className="text-xs text-base-content/55 mt-0.5">
-                  Type the code snippet, then answer a personal question. Timing only, no passwords/secrets logged.
+                  Type the code snippet, then answer a short question. Timing and cadence only.
                 </p>
               </div>
             </div>
@@ -382,14 +384,7 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
             <div className="alert py-2.5 px-3.5 rounded-xl text-xs">
               <Info className="w-4 h-4 shrink-0" />
               <span>
-                <strong>Accurate Personalization:</strong> Measuring both your reading/transcription speed and your thinking/formulating cadence allows the system to eliminate false positives and catch true sight-typing anomalies.
-              </span>
-            </div>
-
-            <div className="alert py-2.5 px-3.5 rounded-xl text-xs bg-base-200 border border-base-300">
-              <Smartphone className="w-4 h-4 shrink-0 text-primary" />
-              <span>
-                <strong>Distance-Aware Pause Modeling:</strong> Copying on-screen code produces short glances (~0.8s). Sentri Code automatically calculates the physical head-tilt offset (+1.8s) for phone or external device glances (2.0s–7.5s) to guarantee legitimate thinking pauses are never misclassified as external transcription.
+                <strong>Personalized Calibration:</strong> Measures your reading and formulation cadence to establish your individual typing profile.
               </span>
             </div>
 
@@ -421,19 +416,6 @@ export const BaselineCalibrationModal: React.FC<BaselineCalibrationModalProps> =
               <p className="text-xs text-base-content/55 mt-0.5">
                 Type the full function below. The progress bar will advance as you type out each line of code.
               </p>
-            </div>
-
-            {/* Distance awareness indicator */}
-            <div className="mx-5 mb-2 px-3 py-1.5 rounded-xl bg-base-200/60 border border-base-300 text-xs flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <Smartphone className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span className="text-base-content/75 text-[11px]">
-                  <strong>Screen vs. Phone Distance Calibration:</strong> You're copying from a close-by screen (~0.8s glances). The system applies a calibrated +1.8s physical distance model for phone glances so thinking pauses stay protected.
-                </span>
-              </div>
-              <span className="badge badge-xs badge-success text-white font-mono shrink-0">
-                Distance Model Active
-              </span>
             </div>
 
             {/* Split: Code to read | Editor to type into */}

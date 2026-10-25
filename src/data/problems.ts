@@ -10,11 +10,7 @@ export const PROBLEMS: Problem[] = [
 
 You may assume that each input would have **exactly one solution**, and you may not use the same element twice.
 
-You can return the answer in any order (indices ascending).
-
-### Stress-Free Guidance
-- You don't need to memorize Map or object syntax! Use the **Reference Manual (Ctrl+K)** tab to look up \`Map\` or \`reduce\` if needed.
-- A brute force $O(n^2)$ solution works, but a single-pass hash map achieves an optimal $O(n)$ time complexity.`,
+You can return the answer in any order (indices ascending).`,
     tags: ['Hash Table', 'Arrays', 'Two Pointers'],
     constraints: [
       '2 <= nums.length <= 10^4',
@@ -100,11 +96,7 @@ function twoSum(nums, target) {
     timeLimitMinutes: 30,
     description: `Given two strings \`s\` and \`t\`, return \`true\` if \`t\` is an anagram of \`s\`, and \`false\` otherwise.
 
-An **Anagram** is a word or phrase formed by rearranging the letters of a different word or phrase, typically using all the original letters exactly once.
-
-### Stress-Free Guidance
-- Consider what happens if lengths differ initially.
-- You can solve this either by sorting both strings or counting character frequencies.`,
+An **Anagram** is a word or phrase formed by rearranging the letters of a different word or phrase, typically using all the original letters exactly once.`,
     tags: ['Hash Table', 'String', 'Sorting'],
     constraints: [
       '1 <= s.length, t.length <= 5 * 10^4',
@@ -168,10 +160,7 @@ function isAnagram(s, t) {
     title: 'Merge Overlapping Intervals',
     difficulty: 'Medium',
     timeLimitMinutes: 60,
-    description: `Given an array of \`intervals\` where \`intervals[i] = [start_i, end_i]\`, merge all overlapping intervals, and return an array of the non-overlapping intervals that cover all the intervals in the input.
-
-### Stress-Free Guidance
-- Remember to sort the intervals by their starting values first. Check the **Reference Manual** for \`Array.prototype.sort\` comparator syntax!`,
+    description: `Given an array of \`intervals\` where \`intervals[i] = [start_i, end_i]\`, merge all overlapping intervals, and return an array of the non-overlapping intervals that cover all the intervals in the input.`,
     tags: ['Array', 'Sorting', 'Intervals'],
     constraints: [
       '1 <= intervals.length <= 10^4',

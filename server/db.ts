@@ -94,7 +94,7 @@ function seedDataIfEmpty() {
   const userCount = (userCountStmt.get() as any)?.count || 0;
 
   if (userCount === 0) {
-    console.log('🌱 Seeding initial users...');
+    console.log('[DB] Seeding initial users...');
     const insertUser = db.prepare(`
       INSERT INTO users (id, email, password_hash, name, role, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -113,7 +113,7 @@ function seedDataIfEmpty() {
   const problemCount = (problemCountStmt.get() as any)?.count || 0;
 
   if (problemCount === 0) {
-    console.log('🌱 Seeding problems and test cases...');
+    console.log('[DB] Seeding problems and test cases...');
     const insertProblem = db.prepare(`
       INSERT INTO problems (id, title, difficulty, category, time_limit_mins, description, constraints, starter_code_json, function_name, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -231,7 +231,7 @@ An **Anagram** is a word or phrase formed by rearranging the letters of a differ
   const subCount = (subCountStmt.get() as any)?.count || 0;
 
   if (subCount === 0) {
-    console.log('🌱 Seeding initial examiner submissions...');
+    console.log('[DB] Seeding initial examiner submissions...');
     const insertSub = db.prepare(`
       INSERT INTO submissions (
         id, candidate_id, candidate_name, problem_id, code, language, score,

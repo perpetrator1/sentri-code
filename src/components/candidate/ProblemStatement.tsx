@@ -1,6 +1,5 @@
 import React from 'react';
 import type { Problem } from '../../types';
-import { Lightbulb, CheckCircle2 } from 'lucide-react';
 
 interface ProblemStatementProps {
   problem: Problem;
@@ -37,27 +36,11 @@ export const ProblemStatement: React.FC<ProblemStatementProps> = ({ problem }) =
 
       <div className="divider my-0" />
 
-      {/* Description — parse for guidance blocks */}
+      {/* Description */}
       <div className="prose prose-sm max-w-none text-base-content/90 leading-relaxed space-y-3">
-        {problem.description.split('\n\n').map((para, idx) => {
-          if (para.includes('Stress-Free Guidance')) {
-            const lines = para.split('\n').filter(l => l && !l.includes('###'));
-            return (
-              <div key={idx} className="alert rounded-xl py-3 px-4 border border-primary/20 bg-primary/5 text-sm space-y-1">
-                <div className="flex items-center gap-1.5 font-semibold text-primary text-xs">
-                  <Lightbulb className="w-3.5 h-3.5" />
-                  Tips for this problem
-                </div>
-                <ul className="space-y-1 mt-1">
-                  {lines.map((line, li) => (
-                    <li key={li} className="text-xs text-base-content/80 leading-relaxed">{line}</li>
-                  ))}
-                </ul>
-              </div>
-            );
-          }
-          return <p key={idx} className="text-sm">{para}</p>;
-        })}
+        {problem.description.split('\n\n').map((para, idx) => (
+          <p key={idx} className="text-sm">{para}</p>
+        ))}
       </div>
 
       {/* Examples */}
@@ -94,12 +77,6 @@ export const ProblemStatement: React.FC<ProblemStatementProps> = ({ problem }) =
             </li>
           ))}
         </ul>
-      </div>
-
-      {/* Warm note at bottom */}
-      <div className="flex items-start gap-2 text-xs text-base-content/50 bg-base-200/50 rounded-xl p-3 border border-base-300/50">
-        <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
-        <span>Take your time — pausing to think is a good sign, not a red flag.</span>
       </div>
     </div>
   );

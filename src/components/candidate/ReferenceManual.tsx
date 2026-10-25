@@ -235,7 +235,7 @@ export const ReferenceManual: React.FC<ReferenceManualProps> = ({
         <div className="flex-1 overflow-y-auto p-5 space-y-4 select-text">
           {entries.length === 0 ? (
             <div className="text-center py-16 text-base-content/40 space-y-3">
-              <div className="text-4xl">🔍</div>
+              <Search className="w-10 h-10 text-base-content/30 mx-auto" />
               <p className="font-semibold text-sm">No references found</p>
               <p className="text-xs max-w-sm mx-auto leading-relaxed">
                 We couldn't find matching references for "{searchQuery}". Try searching for concepts like "slice", "sort", "map", "heap", or clear your filters.
@@ -312,7 +312,7 @@ export const ReferenceManual: React.FC<ReferenceManualProps> = ({
                           mutating ? 'badge-warning text-warning-content' : 'badge-success text-success-content'
                         }`}
                       >
-                        {mutating ? '⚠️ Mutates in-place' : '✓ Immutable'}
+                        {mutating ? 'Mutates in-place' : 'Immutable'}
                       </span>
                       <span>{entry.mutatesVsReturns}</span>
                     </div>

@@ -17,6 +17,7 @@ import {
   Sparkles,
   X,
   Radio,
+  FileText,
 } from 'lucide-react';
 import { ForensicsWorkbench } from './ForensicsWorkbench';
 
@@ -441,7 +442,7 @@ export const ExaminerDashboard: React.FC<ExaminerDashboardProps> = ({
                   <tr>
                     <td colSpan={8} className="text-center py-12 text-base-content/50 text-sm">
                       <div className="space-y-1">
-                        <div className="text-2xl">📋</div>
+                        <FileText className="w-8 h-8 text-base-content/30 mx-auto mb-1" />
                         <p className="font-semibold text-xs">No submissions found</p>
                         <p className="text-[11px] text-base-content/40">
                           {searchQuery || riskFilter !== 'all'
