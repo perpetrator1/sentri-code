@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import type { SubmissionPayload, CodeSnapshot } from '../../types';
 import { db, seedReplaySnapshots, removeDuplicateReplaySequence } from '../../db';
+import { AISummaryCard } from './AISummaryCard';
 
 interface ForensicsWorkbenchProps {
   submission: SubmissionPayload;
@@ -650,34 +651,34 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
         </div>
 
         {/* ── RIGHT: Biometric Forensics & Flagged Events Audit Panel ── */}
-        <div className="w-full lg:w-80 xl:w-96 flex flex-col overflow-y-auto bg-base-50 border-t lg:border-t-0 border-base-300">
+        <div className="w-full lg:w-96 xl:w-[26rem] shrink-0 flex flex-col overflow-y-auto bg-base-100 border-t lg:border-t-0 border-base-300">
           {/* Telemetry comparison */}
           <div className="p-4 space-y-3 border-b border-base-300">
             <h4 className="text-xs font-bold uppercase tracking-widest text-base-content/50">
               Biometric Comparison
             </h4>
             <div className="grid grid-cols-3 gap-1.5 text-xs font-mono">
-              <div className="bg-base-200 rounded-xl p-2.5 space-y-1 border border-base-300">
-                <div className="text-[9px] text-base-content/50 font-sans uppercase tracking-wider mb-1">Cognitive Baseline</div>
-                <div>Flight: {submission.baseline.meanFlightTime}ms</div>
-                <div>Var: {submission.baseline.varianceFlightTime}</div>
-                <div>Dwell: {submission.baseline.meanDwellTime}ms</div>
+              <div className="bg-base-200 rounded-xl p-2 space-y-0.5 border border-base-300 min-w-0 overflow-hidden">
+                <div className="text-[9px] text-base-content/50 font-sans uppercase tracking-wider mb-0.5 truncate">Baseline</div>
+                <div className="truncate text-[11px]">Flight: {submission.baseline.meanFlightTime}ms</div>
+                <div className="truncate text-[11px]">Var: {submission.baseline.varianceFlightTime}</div>
+                <div className="truncate text-[11px]">Dwell: {submission.baseline.meanDwellTime}ms</div>
               </div>
               {submission.baseline.transcriptionMeanFlightTime && (
-                <div className="bg-warning/8 rounded-xl p-2.5 space-y-1 border border-warning/25">
-                  <div className="text-[9px] text-warning/70 font-sans uppercase tracking-wider mb-1">Read & Type</div>
-                  <div>Flight: {submission.baseline.transcriptionMeanFlightTime}ms</div>
-                  <div>Var: {submission.baseline.transcriptionVarianceFlightTime}</div>
-                  <div>BS: {((submission.baseline.transcriptionBackspaceRate ?? 0) * 100).toFixed(1)}%</div>
+                <div className="bg-warning/8 rounded-xl p-2 space-y-0.5 border border-warning/25 min-w-0 overflow-hidden">
+                  <div className="text-[9px] text-warning/70 font-sans uppercase tracking-wider mb-0.5 truncate">Read & Type</div>
+                  <div className="truncate text-[11px]">Flight: {submission.baseline.transcriptionMeanFlightTime}ms</div>
+                  <div className="truncate text-[11px]">Var: {submission.baseline.transcriptionVarianceFlightTime}</div>
+                  <div className="truncate text-[11px]">BS: {((submission.baseline.transcriptionBackspaceRate ?? 0) * 100).toFixed(1)}%</div>
                 </div>
               )}
-              <div className="bg-base-200 rounded-xl p-2.5 space-y-1 border border-base-300">
-                <div className="text-[9px] text-base-content/50 font-sans uppercase tracking-wider mb-1">Live Exam</div>
-                <div className={submission.telemetrySummary.meanFlightTime < 100 ? 'text-warning font-bold' : ''}>
+              <div className="bg-base-200 rounded-xl p-2 space-y-0.5 border border-base-300 min-w-0 overflow-hidden">
+                <div className="text-[9px] text-base-content/50 font-sans uppercase tracking-wider mb-0.5 truncate">Live Exam</div>
+                <div className={`truncate text-[11px] ${submission.telemetrySummary.meanFlightTime < 100 ? 'text-warning font-bold' : ''}`}>
                   Flight: {submission.telemetrySummary.meanFlightTime}ms
                 </div>
-                <div>Backsp.: {submission.telemetrySummary.backspaceCount}</div>
-                <div>Refact.: {submission.telemetrySummary.refactoringEdits}</div>
+                <div className="truncate text-[11px]">Backsp.: {submission.telemetrySummary.backspaceCount}</div>
+                <div className="truncate text-[11px]">Refact.: {submission.telemetrySummary.refactoringEdits}</div>
               </div>
             </div>
             <div className="text-xs text-base-content/60">
@@ -697,7 +698,7 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                   Q: {submission.baseline.personalQuestionAsked}
                 </p>
               )}
-              <blockquote className="text-xs text-base-content/80 leading-relaxed bg-secondary/5 border-l-2 border-secondary/40 pl-3 py-1 rounded-r-lg">
+              <blockquote className="text-xs text-base-content/80 leading-relaxed bg-secondary/5 border-l-2 border-secondary/40 pl-3 py-1 rounded-r-lg break-words">
                 {submission.baseline.candidateStatement}
               </blockquote>
             </div>
@@ -731,7 +732,7 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                         setIsPlaying(false);
                         setIdx(targetSnapIdx);
                       }}
-                      className={`rounded-xl border p-2.5 text-xs space-y-1 cursor-pointer transition-all hover:scale-[1.01] hover:shadow-sm ${
+                      className={`rounded-xl border p-2.5 text-xs space-y-1.5 cursor-pointer transition-all hover:scale-[1.01] hover:shadow-sm overflow-hidden ${
                         isCurrentTarget
                           ? 'ring-2 ring-primary bg-primary/10 border-primary'
                           : item.severity === 'high'
@@ -742,20 +743,33 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
                       }`}
                       title="Click to jump replay to this snapshot"
                     >
-                      <div className="flex items-center justify-between font-mono text-[10px]">
-                        <span className="font-bold uppercase tracking-wide flex items-center gap-1">
-                          {item.severity === 'high' && <span className="w-1.5 h-1.5 rounded-full bg-error" />}
-                          {item.severity}
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 font-mono text-[10px]">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <span
+                            className={`badge badge-xs font-bold uppercase font-mono ${
+                              item.severity === 'high'
+                                ? 'badge-error text-white'
+                                : item.severity === 'medium'
+                                ? 'badge-warning text-warning-content'
+                                : 'badge-neutral'
+                            }`}
+                          >
+                            {item.severity}
+                          </span>
                           {item.anomalyReason.toLowerCase().includes('phone') && (
-                            <span className="badge badge-xs badge-error text-white font-mono font-bold ml-1">Phone Distance</span>
+                            <span className="badge badge-xs badge-error badge-outline font-mono font-bold">
+                              Phone Distance
+                            </span>
                           )}
-                        </span>
-                        <span className="flex items-center gap-1">
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 text-[10px] text-base-content/60">
                           <span>{Math.round(item.confidenceScore * 100)}% conf.</span>
                           <span className="text-primary font-bold">→ Frame {targetSnapIdx + 1}</span>
-                        </span>
+                        </div>
                       </div>
-                      <p className="text-[11px] leading-snug">{item.anomalyReason}</p>
+                      <p className="text-[11px] leading-snug break-words text-base-content/85">
+                        {item.anomalyReason}
+                      </p>
                     </div>
                   );
                 })}
@@ -767,6 +781,15 @@ export const ForensicsWorkbench: React.FC<ForensicsWorkbenchProps> = ({ submissi
               Docs consulted {submission.telemetrySummary.referenceQueriesCount}×, snippets inserted{' '}
               {submission.telemetrySummary.snippetsInsertedCount}×
             </div>
+          </div>
+
+          {/* AI Forensic Situation Summary for Professor Decision */}
+          <div className="p-4 border-b border-base-300 bg-base-100">
+            <AISummaryCard
+              submission={submission}
+              onInsertIntoNotes={(txt) => setNotes((prev) => (prev ? `${prev}\n\n${txt}` : txt))}
+              onApplyVerdict={(status) => handleSave(status)}
+            />
           </div>
 
           {/* Verdict form */}

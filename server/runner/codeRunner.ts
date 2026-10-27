@@ -104,7 +104,7 @@ export async function executeJavaScript(
 
       const __input = JSON.parse(${JSON.stringify(tc.input)});
       const __res = Array.isArray(__input) ? __fn(...__input) : __fn(__input);
-      JSON.stringify(__res);
+      JSON.stringify({ val: __res !== undefined ? __res : null, isUndef: __res === undefined });
     `;
 
     const start = performance.now();
@@ -114,7 +114,8 @@ export async function executeJavaScript(
         displayErrors: true,
       });
       const end = performance.now();
-      const actualVal = JSON.parse(vmResultJson);
+      const parsedContainer = typeof vmResultJson === 'string' ? JSON.parse(vmResultJson) : { val: null, isUndef: true };
+      const actualVal = parsedContainer.isUndef ? undefined : parsedContainer.val;
       const expectedVal = JSON.parse(tc.expected);
       const passed = deepEqual(actualVal, expectedVal);
 
@@ -122,7 +123,11 @@ export async function executeJavaScript(
         testCaseId: tc.id,
         label: tc.label,
         passed,
-        actual: tc.isHidden ? (passed ? '[Correct Output]' : '[Hidden in Evaluation]') : JSON.stringify(actualVal),
+        actual: tc.isHidden
+          ? (passed ? '[Correct Output]' : '[Hidden in Evaluation]')
+          : parsedContainer.isUndef
+          ? 'undefined'
+          : JSON.stringify(actualVal),
         expected: tc.isHidden ? '[Hidden in Evaluation]' : tc.expected,
         executionTimeMs: Number((end - start).toFixed(2)),
         stdout: logs.join('\n'),
@@ -153,17 +158,30 @@ export async function executePython(
   testCases: TestCaseInput[],
   functionName: string
 ): Promise<TestCaseExecutionResult[]> {
-  const results: TestCaseExecutionResult[] = [];
   const tmpDir = os.tmpdir();
   const scriptPath = path.join(tmpDir, `sentri_py_${Date.now()}_${Math.random().toString(36).slice(2)}.py`);
 
-  // Python wrapper script executing test cases
+  // Python wrapper script executing test cases with captured stdout and tuple/list normalization
   const pythonWrapper = `
 import sys
 import json
 import time
+import io
 
-${code}
+def _normalize(val):
+    if isinstance(val, (tuple, list)):
+        return [_normalize(x) for x in val]
+    if isinstance(val, dict):
+        return {k: _normalize(v) for k, v in val.items()}
+    return val
+
+try:
+${code.split('\n').map(line => '    ' + line).join('\n')}
+except Exception as init_err:
+    print("__SENTRI_EXEC_JSON_START__")
+    print(json.dumps({"global_error": f"Script Initialization Error: {str(init_err)}"}))
+    print("__SENTRI_EXEC_JSON_END__")
+    sys.exit(0)
 
 test_cases = json.loads(${JSON.stringify(JSON.stringify(testCases))})
 
@@ -178,10 +196,16 @@ if not target_fn:
             break
 
 if not target_fn:
+    print("__SENTRI_EXEC_JSON_START__")
     print(json.dumps({"global_error": 'Function "${functionName}" is not defined.'}))
+    print("__SENTRI_EXEC_JSON_END__")
     sys.exit(0)
 
+real_stdout = sys.stdout
+
 for tc in test_cases:
+    capture_buffer = io.StringIO()
+    sys.stdout = capture_buffer
     t_start = time.perf_counter()
     try:
         raw_input = json.loads(tc['input'])
@@ -193,37 +217,60 @@ for tc in test_cases:
             actual_val = target_fn(raw_input)
             
         t_end = time.perf_counter()
-        passed = actual_val == expected_val
+        sys.stdout = real_stdout
+        captured_logs = capture_buffer.getvalue()
+
+        norm_actual = _normalize(actual_val)
+        norm_expected = _normalize(expected_val)
+        passed = norm_actual == norm_expected
+
+        try:
+            actual_str = json.dumps(actual_val)
+        except Exception:
+            actual_str = str(actual_val)
+
         results.append({
             "testCaseId": tc['id'],
             "label": tc['label'],
             "passed": passed,
-            "actual": json.dumps(actual_val),
+            "actual": actual_str,
             "expected": tc['expected'],
             "executionTimeMs": round((t_end - t_start) * 1000, 2),
+            "stdout": captured_logs,
             "isHidden": tc.get('isHidden', False)
         })
     except Exception as e:
         t_end = time.perf_counter()
+        sys.stdout = real_stdout
+        captured_logs = capture_buffer.getvalue()
         results.append({
             "testCaseId": tc['id'],
             "label": tc['label'],
             "passed": False,
             "error": str(e),
             "executionTimeMs": round((t_end - t_start) * 1000, 2),
+            "stdout": captured_logs,
             "isHidden": tc.get('isHidden', False)
         })
+    finally:
+        sys.stdout = real_stdout
 
+print("__SENTRI_EXEC_JSON_START__")
 print(json.dumps({"results": results}))
+print("__SENTRI_EXEC_JSON_END__")
 `;
 
   try {
     fs.writeFileSync(scriptPath, pythonWrapper, 'utf-8');
 
     return await new Promise<TestCaseExecutionResult[]>((resolve) => {
-      const pyProcess = spawn('python3', [scriptPath], {
+      const pythonCmd = 'python3';
+      const pyProcess = spawn(pythonCmd, [scriptPath], {
         timeout: 2500,
-        env: { PATH: process.env.PATH },
+        env: {
+          ...process.env,
+          PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+        },
       });
 
       let stdoutData = '';
@@ -237,10 +284,36 @@ print(json.dumps({"results": results}))
         stderrData += chunk.toString();
       });
 
-      pyProcess.on('close', (code) => {
+      pyProcess.on('close', (code, signal) => {
         try { fs.unlinkSync(scriptPath); } catch (_) {}
 
-        if (code !== 0 && !stdoutData) {
+        if (signal === 'SIGTERM') {
+          return resolve(
+            testCases.map((tc) => ({
+              testCaseId: tc.id,
+              label: tc.label,
+              passed: false,
+              error: 'Execution Timed Out (>2500ms). Terminated by sandbox.',
+              executionTimeMs: 2500,
+              isHidden: tc.isHidden,
+            }))
+          );
+        }
+
+        // Extract JSON between sentinel tokens
+        let jsonPayload = '';
+        const startToken = '__SENTRI_EXEC_JSON_START__';
+        const endToken = '__SENTRI_EXEC_JSON_END__';
+        const startIdx = stdoutData.indexOf(startToken);
+        const endIdx = stdoutData.indexOf(endToken);
+
+        if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+          jsonPayload = stdoutData.slice(startIdx + startToken.length, endIdx).trim();
+        } else {
+          jsonPayload = stdoutData.trim();
+        }
+
+        if (!jsonPayload && code !== 0) {
           return resolve(
             testCases.map((tc) => ({
               testCaseId: tc.id,
@@ -254,7 +327,7 @@ print(json.dumps({"results": results}))
         }
 
         try {
-          const parsed = JSON.parse(stdoutData.trim());
+          const parsed = JSON.parse(jsonPayload);
           if (parsed.global_error) {
             return resolve(
               testCases.map((tc) => ({

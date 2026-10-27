@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { db } from '../db';
 import { authMiddleware, requireRole, JWT_SECRET, type AuthUser } from '../middleware/auth';
 import { submissionEvents } from '../services/events';
+import { generateAuthenticitySummary } from '../services/llmSummary';
 
 const router = Router();
 
@@ -165,6 +166,55 @@ router.post('/verdict', authMiddleware, requireRole('examiner', 'admin'), (req, 
       reviewedAt: now,
     },
   });
+});
+
+// Check server-side AI configuration & environment key availability
+router.get('/ai-status', (req, res) => {
+  const hasEnvKey = Boolean((process.env.GEMINI_API_KEY || process.env.LLM_API_KEY)?.trim());
+  res.json({
+    enabled: true,
+    hasServerKey: hasEnvKey,
+    provider: hasEnvKey ? 'gemini' : 'local',
+    model: 'gemini-3.5-flash',
+  });
+});
+
+// Generate AI Authenticity Summary for a candidate (Optional Professor Feature)
+router.post('/ai-summary', authMiddleware, requireRole('examiner', 'admin'), async (req, res) => {
+  try {
+    const { submissionId, submission, apiKey } = req.body;
+
+    let payload = submission;
+
+    if (!payload && submissionId) {
+      const row = db.prepare('SELECT * FROM submissions WHERE id = ?').get(submissionId) as any;
+      if (!row) {
+        return res.status(404).json({ error: 'Submission not found' });
+      }
+
+      payload = {
+        candidateName: row.candidate_name,
+        candidateId: row.candidate_id,
+        problemId: row.problem_id,
+        score: row.score,
+        telemetrySummary: JSON.parse(row.telemetry_summary_json || '{}'),
+        anomalyTimeline: JSON.parse(row.anomaly_timeline_json || '[]'),
+        baseline: JSON.parse(row.baseline_json || 'null'),
+      };
+    }
+
+    if (!payload || !payload.telemetrySummary) {
+      return res.status(400).json({ error: 'Valid submission payload or submissionId is required.' });
+    }
+
+    const result = await generateAuthenticitySummary(payload, apiKey);
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Error in /api/examiner/ai-summary:', err);
+    return res.status(500).json({
+      error: err.message || 'Failed to generate authenticity summary',
+    });
+  }
 });
 
 export default router;
